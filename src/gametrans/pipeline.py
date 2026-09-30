@@ -69,6 +69,20 @@ def _default_capture_factory(monitor, cfg: dict):
     return create_backend(backend_name, monitor_index=monitor.index)
 
 
+def _default_raw_capture_factory(monitor, cfg: dict):
+    """Backend for the dedicated raw-frame thread (mirror background),
+    deliberately forced to "mss" rather than reusing the OCR loop's dxcam
+    instance: dxcam's duplicator is effectively a single shared object per
+    monitor (create() returns the existing instance if called twice), and
+    concurrent grab() calls against it from two threads at once is not a
+    combination this project has verified as safe. mss creates its own
+    independent capture resources per instance, and at ~11ms/grab
+    (measured in phase 2) is still fast enough for 30+ fps."""
+    from gametrans.capture import create_backend
+
+    return create_backend("mss", monitor_index=monitor.index)
+
+
 def _default_ocr_func(frame, cfg: dict) -> list[OcrLine]:
     from gametrans.ocr import run_ocr
 
@@ -118,6 +132,7 @@ class Pipeline:
         *,
         store: Optional[Store] = None,
         capture_factory: Callable = _default_capture_factory,
+        raw_capture_factory: Callable = _default_raw_capture_factory,
         ocr_func: Callable = _default_ocr_func,
         fast_translator_factory: Callable = _default_translator_factory,
         profile_selector: Callable = _default_profile_selector,
@@ -144,6 +159,7 @@ class Pipeline:
             self.store.load()
 
         self._capture_factory = capture_factory
+        self._raw_capture_factory = raw_capture_factory
         self._ocr_func = ocr_func
         self._fast_translator_factory = fast_translator_factory
         self._profile_selector = profile_selector
@@ -161,6 +177,24 @@ class Pipeline:
         self._latest_frame: Optional[FrameResult] = None
         self._frame_counter = 0
 
+        # Fed by a DEDICATED thread (_raw_capture_loop), independent of
+        # the OCR loop's own grab() -- OCR takes ~400-600ms for a
+        # full-screen scan, so a mirror window that only redraws when a
+        # new FrameResult arrives is capped at OCR's pace (~1-2fps), not
+        # a real video-mirror frame rate, no matter how fast its own
+        # repaint timer runs (this was tried first: publishing the raw
+        # frame earlier within each OCR loop iteration, but the
+        # iteration rate itself is still OCR-bound, so it didn't actually
+        # reach 30fps -- a real user asked for "30fps+" on the mirror
+        # screen and a genuinely separate capture loop was needed).
+        # MirrorWindow pulls this at full capture speed while overlaying
+        # the last-known OCR'd text blocks on top -- slightly stale text
+        # position is an acceptable trade-off for a game UI that's static
+        # while a dialogue box is shown, smooth video isn't.
+        self._raw_frame_lock = threading.Lock()
+        self._latest_raw_frame: Any = None
+        self.enable_raw_capture = False  # ui_main.py turns this on only for mode B
+
     # ------------------------------------------------------------- control
 
     def start(self, monitor) -> None:
@@ -168,6 +202,9 @@ class Pipeline:
         t1 = threading.Thread(target=self._capture_ocr_loop, args=(monitor,), name="capture-ocr", daemon=True)
         t2 = threading.Thread(target=self._fast_translate_loop, name="fast-translate", daemon=True)
         self._threads = [t1, t2]
+        if self.enable_raw_capture:
+            t3 = threading.Thread(target=self._raw_capture_loop, args=(monitor,), name="raw-capture", daemon=True)
+            self._threads.append(t3)
         for t in self._threads:
             t.start()
 
@@ -181,6 +218,14 @@ class Pipeline:
     def snapshot(self) -> Optional[FrameResult]:
         with self._frame_lock:
             return self._latest_frame
+
+    def snapshot_raw_frame(self) -> Any:
+        """The most recently captured frame, published immediately after
+        grab() on every loop iteration -- independent of (and much
+        fresher than) FrameResult, which only updates once OCR finishes
+        for that frame. See the comment in __init__ for why this exists."""
+        with self._raw_frame_lock:
+            return self._latest_raw_frame
 
     # --------------------------------------------------------- capture+ocr
 
@@ -240,6 +285,9 @@ class Pipeline:
                     self._stop_event.wait(0.01)
                     continue
 
+                with self._raw_frame_lock:
+                    self._latest_raw_frame = frame
+
                 now = time.monotonic()
                 try:
                     if regions:
@@ -294,6 +342,39 @@ class Pipeline:
                     self._latest_frame = result
                 self.on_frame(result)
                 self.on_status(StatusUpdate(ocr_ms=ocr_ms, translate_ms=0.0, block_count=len(cur_blocks), active_tier="1"))
+        finally:
+            backend.close()
+
+    def _raw_capture_loop(self, monitor) -> None:
+        """Dedicated thread for mode B's mirror background: grabs frames
+        as fast as the backend allows (mss, ~11ms/grab measured in phase
+        2 -- easily >30fps), entirely independent of the OCR loop's much
+        slower iteration rate. See the comment in __init__ for why this
+        needed to be a genuinely separate thread rather than just
+        publishing earlier within the existing OCR loop."""
+        try:
+            backend = self._raw_capture_factory(monitor, self.cfg)
+        except Exception as exc:  # noqa: BLE001 - report, thread must exit cleanly
+            logger.error("pipeline: raw capture (mirror) backend failed to start: %s", exc)
+            return
+
+        target_fps = float(self.cfg.get("display", {}).get("mirror_fps", 30) or 30)
+        min_interval_s = 1.0 / max(target_fps, 1.0)
+        last_loop_start = 0.0
+
+        try:
+            while not self._stop_event.is_set():
+                elapsed = time.monotonic() - last_loop_start
+                if elapsed < min_interval_s:
+                    self._stop_event.wait(min_interval_s - elapsed)
+                last_loop_start = time.monotonic()
+
+                if self._watchdog is not None:
+                    self._watchdog.heartbeat("raw_capture")
+                frame = backend.grab(monitor.left, monitor.top, monitor.width, monitor.height)
+                if frame is not None:
+                    with self._raw_frame_lock:
+                        self._latest_raw_frame = frame
         finally:
             backend.close()
 

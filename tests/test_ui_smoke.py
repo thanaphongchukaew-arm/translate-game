@@ -364,6 +364,7 @@ def test_main_window_watchdog_restarts_stalled_pipeline(qapp, tmp_path, monkeypa
 
         def __init__(self, cfg, on_frame, on_status, watchdog=None, **kwargs):
             self.started_with = None
+            self.enable_raw_capture = False
             FakePipeline.instances.append(self)
 
         def start(self, monitor):

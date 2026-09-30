@@ -47,7 +47,19 @@ class MirrorWindow(QtWidgets.QWidget):
         super().__init__()
         self._output_monitor = output_monitor
         self._pipeline: Pipeline | None = None
-        self._latest: FrameResult | None = None
+        # Background image and text blocks are pulled independently and
+        # can be from different moments: the raw frame updates every timer
+        # tick at full capture speed (dxcam grabs cost ~0.1ms), while
+        # blocks only update whenever the OCR+translate pipeline finishes
+        # its next cycle (hundreds of ms for a full-screen scan). A real
+        # user asked for the mirror to run at "30fps+"; tying its redraw
+        # to FrameResult (the old behavior) meant it only ever visually
+        # updated at OCR's pace no matter how fast this timer ticked.
+        # Overlaying slightly-stale text on a fresh background is the
+        # trade-off -- acceptable since a game dialogue box is static
+        # while shown, unlike the background scene/animation behind it.
+        self._latest_raw = None
+        self._latest_blocks: tuple = ()
 
         self.setWindowTitle("Game Translator - Output")
         self.setGeometry(output_monitor.left, output_monitor.top, output_monitor.width, output_monitor.height)
@@ -69,27 +81,37 @@ class MirrorWindow(QtWidgets.QWidget):
     def _pull_and_repaint(self) -> None:
         if self._pipeline is None:
             return
-        frame = self._pipeline.snapshot()
-        if frame is not None and frame.frame_image is not None:
-            self._latest = frame
+        raw = self._pipeline.snapshot_raw_frame()
+        if raw is not None:
+            self._latest_raw = raw
+        frame_result = self._pipeline.snapshot()
+        if frame_result is not None:
+            self._latest_blocks = frame_result.blocks
+        if self._latest_raw is not None:
             self.update()
 
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802 - Qt override
-        frame = self._latest
+        raw = self._latest_raw
+        blocks = self._latest_blocks
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
         try:
-            if frame is None or frame.frame_image is None:
+            if raw is None:
                 painter.fillRect(self.rect(), QtGui.QColor(10, 10, 14))
                 painter.setPen(QtGui.QColor(180, 180, 180))
                 painter.drawText(self.rect(), QtCore.Qt.AlignCenter, "รอภาพจากเกม...")
                 return
 
-            img_array = frame.frame_image.copy()
-            for tb in frame.blocks:
+            capture_height, capture_width = raw.shape[0], raw.shape[1]
+            img_array = raw.copy()
+            for tb in blocks:
                 b = tb.block
                 x1, y1, x2, y2 = int(b.x1), int(b.y1), int(b.x2), int(b.y2)
-                color = _median_fill_color(frame.frame_image, x1, y1, x2, y2)
+                x1, y1 = max(0, x1), max(0, y1)
+                x2, y2 = min(capture_width, x2), min(capture_height, y2)
+                if x2 <= x1 or y2 <= y1:
+                    continue
+                color = _median_fill_color(raw, x1, y1, x2, y2)
                 img_array[y1:y2, x1:x2] = (color[2], color[1], color[0])  # back to BGR for the array
 
             qimg = _frame_to_qimage(img_array)
@@ -99,9 +121,9 @@ class MirrorWindow(QtWidgets.QWidget):
             painter.fillRect(self.rect(), QtGui.QColor(0, 0, 0))
             painter.drawImage(x_off, y_off, scaled)
 
-            sx = scaled.width() / max(frame.capture_width, 1)
-            sy = scaled.height() / max(frame.capture_height, 1)
-            for tb in frame.blocks:
+            sx = scaled.width() / max(capture_width, 1)
+            sy = scaled.height() / max(capture_height, 1)
+            for tb in blocks:
                 b = tb.block
                 base_rect = QtCore.QRectF(
                     x_off + b.x1 * sx, y_off + b.y1 * sy,

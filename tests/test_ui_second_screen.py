@@ -62,6 +62,23 @@ def test_mirror_window_renders_without_a_pipeline_attached(qapp):
     win.close()
 
 
+class _FakePipeline:
+    """Stands in for Pipeline's two independent snapshot sources: the raw
+    frame (fast, updates every tick) and the FrameResult (slow, updates
+    at OCR's pace) -- see the comment in MirrorWindow.__init__ for why
+    these are pulled separately now."""
+
+    def __init__(self, raw_frame=None, frame_result=None):
+        self.raw_frame = raw_frame
+        self.frame_result = frame_result
+
+    def snapshot_raw_frame(self):
+        return self.raw_frame
+
+    def snapshot(self):
+        return self.frame_result
+
+
 def test_mirror_window_renders_a_real_frame_with_blocks(qapp):
     win = MirrorWindow(_monitor())
     win.show()
@@ -70,23 +87,19 @@ def test_mirror_window_renders_a_real_frame_with_blocks(qapp):
     result = FrameResult(
         frame_id=1,
         blocks=(TranslatedBlock(block=_block(), thai="สวัสดี", final=True),),
-        capture_width=800, capture_height=600, frame_image=frame,
+        capture_width=800, capture_height=600,
     )
 
-    class _FakePipeline:
-        def snapshot(self):
-            return result
-
-    win.attach_pipeline(_FakePipeline())
+    win.attach_pipeline(_FakePipeline(raw_frame=frame, frame_result=result))
     win._pull_and_repaint()
     win.repaint()
     win.close()
 
 
-def test_mirror_window_does_not_mutate_the_shared_frame_image(qapp):
-    """frame_image is a shared reference (spec 3A: no re-capture) --
+def test_mirror_window_does_not_mutate_the_shared_raw_frame(qapp):
+    """The raw frame is a shared reference (spec 3A: no re-capture) --
     painting over it for display must never corrupt the original array
-    other consumers (e.g. a future OCR pass) might still be reading."""
+    other consumers (e.g. the next OCR pass) might still be reading."""
     win = MirrorWindow(_monitor())
     win.show()
 
@@ -95,19 +108,63 @@ def test_mirror_window_does_not_mutate_the_shared_frame_image(qapp):
     result = FrameResult(
         frame_id=1,
         blocks=(TranslatedBlock(block=_block(), thai="test", final=True),),
-        capture_width=800, capture_height=600, frame_image=frame,
+        capture_width=800, capture_height=600,
     )
 
-    class _FakePipeline:
-        def snapshot(self):
-            return result
-
-    win.attach_pipeline(_FakePipeline())
+    win.attach_pipeline(_FakePipeline(raw_frame=frame, frame_result=result))
     win._pull_and_repaint()
     win.repaint()
     win.close()
 
-    assert np.array_equal(frame, original), "MirrorWindow must copy frame_image before drawing on it"
+    assert np.array_equal(frame, original), "MirrorWindow must copy the raw frame before drawing on it"
+
+
+def test_mirror_window_background_updates_even_when_blocks_are_stale(qapp):
+    """The whole point of decoupling: a fresh raw frame must be drawn even
+    if no new FrameResult (blocks) has arrived yet -- otherwise the mirror
+    is still effectively capped at OCR speed despite ticking at
+    mirror_fps."""
+    win = MirrorWindow(_monitor())
+    win.show()
+
+    frame1 = np.full((600, 800, 3), (10, 10, 10), dtype=np.uint8)
+    pipe = _FakePipeline(raw_frame=frame1, frame_result=None)
+    win.attach_pipeline(pipe)
+    win._pull_and_repaint()
+    assert win._latest_raw is frame1
+    assert win._latest_blocks == ()
+
+    # a newer raw frame arrives, but still no FrameResult yet (OCR still
+    # mid-cycle) -- the background must still update
+    frame2 = np.full((600, 800, 3), (20, 20, 20), dtype=np.uint8)
+    pipe.raw_frame = frame2
+    win._pull_and_repaint()
+    assert win._latest_raw is frame2
+    assert win._latest_blocks == ()  # blocks correctly stayed unchanged
+    win.close()
+
+
+def test_mirror_window_blocks_out_of_frame_bounds_are_skipped_safely(qapp):
+    """A block whose coordinates fall outside the current raw frame
+    (e.g. resolution changed, or a stale block from a differently-sized
+    region) must be skipped, not crash on an invalid numpy slice."""
+    win = MirrorWindow(_monitor())
+    win.show()
+
+    frame = np.full((600, 800, 3), (40, 40, 40), dtype=np.uint8)
+    out_of_bounds_block = Block(
+        id=99, x1=900, y1=900, x2=950, y2=950, text="Hello", line_h=20.0,
+        first_seen=0.0, last_seen=0.0, stable_cycles=1, stable_since=0.0,
+    )
+    result = FrameResult(
+        frame_id=1,
+        blocks=(TranslatedBlock(block=out_of_bounds_block, thai="สวัสดี", final=True),),
+        capture_width=800, capture_height=600,
+    )
+    win.attach_pipeline(_FakePipeline(raw_frame=frame, frame_result=result))
+    win._pull_and_repaint()
+    win.repaint()  # must not raise
+    win.close()
 
 
 def test_panel_window_appends_new_lines_and_dedupes(qapp):
