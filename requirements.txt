@@ -64,3 +64,8 @@ sentencepiece
 sacrebleu
 huggingface_hub
 PySide6
+
+# Phase 6 (perf/endurance tooling) additions:
+#   psutil                         - RSS/thread/priority (tools/endurance_test.py,
+#                                     eco-mode low_priority in pipeline.py)
+psutil

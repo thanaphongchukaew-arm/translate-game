@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.claude/
 
 # runtime user data / generated artifacts — not source
 config.user.json

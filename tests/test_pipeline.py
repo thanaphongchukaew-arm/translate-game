@@ -397,6 +397,48 @@ def test_no_regions_falls_back_to_full_screen_scan(store):
     assert frames[-1].blocks[0].block.text == "Hello"
 
 
+def test_max_ocr_fps_throttles_the_capture_loop(store):
+    """spec section 9 (eco mode): a configured max_ocr_fps caps the loop
+    rate. 0 (the default) must stay uncapped."""
+    ocr = FakeOcr([OcrLine(x1=0, y1=0, x2=100, y2=20, text="Hello", score=0.9)])
+    pipe = Pipeline(
+        cfg={"fast": {}, "cache": {}, "text": {}, "capture": {"max_ocr_fps": 20}},
+        on_frame=lambda f: None,
+        on_status=lambda s: None,
+        store=store,
+        profile_selector=lambda cfg: None,
+        capture_factory=lambda monitor, cfg: FakeCapture(),
+        ocr_func=ocr,
+        fast_translator_factory=lambda cfg: FakeTranslator(),
+    )
+    pipe.start(_monitor())
+    time.sleep(1.0)
+    pipe.stop()
+
+    # 20 fps for ~1s should give roughly 20 calls, NOT the tens of
+    # thousands an uncapped loop produces in the same window (seen
+    # elsewhere in this file with a FakeCapture that returns instantly).
+    assert 10 <= ocr.call_count <= 35, f"expected ~20 OCR calls at 20fps cap, got {ocr.call_count}"
+
+
+def test_max_ocr_fps_zero_stays_uncapped(store):
+    ocr = FakeOcr([OcrLine(x1=0, y1=0, x2=100, y2=20, text="Hello", score=0.9)])
+    pipe = Pipeline(
+        cfg={"fast": {}, "cache": {}, "text": {}, "capture": {"max_ocr_fps": 0}},
+        on_frame=lambda f: None,
+        on_status=lambda s: None,
+        store=store,
+        profile_selector=lambda cfg: None,
+        capture_factory=lambda monitor, cfg: FakeCapture(),
+        ocr_func=ocr,
+        fast_translator_factory=lambda cfg: FakeTranslator(),
+    )
+    pipe.start(_monitor())
+    time.sleep(0.3)
+    pipe.stop()
+    assert ocr.call_count > 500, "uncapped loop should run far faster than a 20fps cap would allow"
+
+
 def test_capture_backend_failure_does_not_crash_process(store):
     def failing_factory(monitor, cfg):
         raise RuntimeError("no capture backend available")

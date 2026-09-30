@@ -213,8 +213,25 @@ class Pipeline:
         region_prev_blocks: dict[str, list[Block]] = {r.name: [] for r in regions}
         region_cfgs = {r.name: self._build_region_cfg(r) for r in regions}
 
+        # spec section 9: eco mode caps the OCR loop rate and can lower
+        # this thread's OS priority so the game keeps GPU/CPU headroom.
+        # Both are opt-in (0 / false = the section 3D "always-on" default:
+        # uncapped, normal priority) -- never throttled automatically.
+        capture_cfg = self.cfg.get("capture", {})
+        max_ocr_fps = float(capture_cfg.get("max_ocr_fps", 0) or 0)
+        min_interval_s = 1.0 / max_ocr_fps if max_ocr_fps > 0 else 0.0
+        if bool(self.cfg.get("resources", {}).get("low_priority", False)):
+            self._set_low_priority()
+        last_loop_start = 0.0
+
         try:
             while not self._stop_event.is_set():
+                if min_interval_s > 0:
+                    elapsed = time.monotonic() - last_loop_start
+                    if elapsed < min_interval_s:
+                        self._stop_event.wait(min_interval_s - elapsed)
+                last_loop_start = time.monotonic()
+
                 if self._watchdog is not None:
                     self._watchdog.heartbeat("capture_ocr")
                 t0 = time.perf_counter()
@@ -279,6 +296,14 @@ class Pipeline:
                 self.on_status(StatusUpdate(ocr_ms=ocr_ms, translate_ms=0.0, block_count=len(cur_blocks), active_tier="1"))
         finally:
             backend.close()
+
+    def _set_low_priority(self) -> None:
+        try:
+            import psutil
+
+            psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+        except Exception as exc:  # noqa: BLE001 - best-effort only, never fatal
+            logger.warning("pipeline: could not set low process priority (%s)", exc)
 
     def _build_region_cfg(self, region: Region) -> dict:
         """A per-region cfg copy with the region's preset's layout
