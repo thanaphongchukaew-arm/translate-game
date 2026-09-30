@@ -509,3 +509,18 @@ batch 8 ประโยค:    cuda 126ms รวม (16ms/ข้อความ)
 
 ### สถานะ
 243/243 เทสผ่าน (คงไว้แค่ `intra_threads` เป็น config option เผื่อฮาร์ดแวร์อื่น แต่ default กลับไป 0) ยังไม่มีคันโยกเพิ่มเติมที่ปลอดภัยจะทำเองได้อีกในส่วนการแปล — รอผลทดสอบจริงกับเกมของ fix ก่อนหน้า (profile delay) ก่อน
+
+## เพิ่ม Desktop shortcut ตามคำขอ (2026-09-30)
+
+ผู้ใช้ถาม "ทำเป็น shortcut หรือ .exe ได้มั้ย" — ถามให้ชัดว่าอยากได้แบบไหน เลือก **shortcut บน Desktop** (ไม่ใช่ PyInstaller .exe แบบ standalone ซึ่งมีความเสี่ยงเรื่อง packaging ไลบรารี GPU สูงกว่ามาก และยังไม่เคยทำ/ทดสอบในโปรเจกต์นี้ — deferred ไว้ตามเดิม)
+
+### สิ่งที่ทำ
+เพิ่ม `scripts/run_gui.pyw` — launcher ที่รันผ่าน `pythonw.exe` (ไม่ใช่ `python.exe`) เพื่อไม่ให้มีหน้าต่าง console เด้งขึ้นมาตอนเปิดแอป (แอปเป็น PySide6 GUI อยู่แล้ว) หาตำแหน่งโปรเจกต์จากตำแหน่งไฟล์ตัวเอง เพิ่ม `src` เข้า `sys.path` และ `os.chdir()` ไปที่ root ก่อนเรียก `gametrans.app.main()` เพื่อให้ path สัมพัทธ์ต่างๆ (config, profiles, models) ทำงานเหมือนกับตอนรันผ่าน `scripts/run.ps1`
+
+สร้าง shortcut ที่ `C:\Users\thana\OneDrive\Desktop\Game Screen Translator.lnk` ชี้ไปที่ `pythonw.exe` พร้อม argument เป็น path ของ `run_gui.pyw` และตั้ง Working Directory ให้ถูกต้อง
+
+### ทดสอบจริง
+รัน `run_gui.pyw` จริงผ่าน `pythonw.exe` (จำลองสิ่งที่ shortcut จะทำ) ยืนยันว่า process รันอยู่จริงไม่ crash (`PID` ปรากฏใน `Get-Process`) และเช็ค `gametrans.log` เห็น log entry ใหม่ตรงเวลาที่รัน ("global hotkey registration failed" ตอนรันจาก context อัตโนมัติของผม — คาดว่าเกี่ยวกับ window station ที่จำกัดของเครื่องมือที่ผมใช้รันคำสั่ง ไม่ใช่ปัญหาของ shortcut เอง ต้องให้ผู้ใช้ทดสอบเองว่า hotkey ทำงานปกติตอนดับเบิลคลิก shortcut จริงบนเดสก์ท็อปของตัวเอง) หยุด process หลังยืนยันแล้ว ไม่ปล่อยให้ค้างอยู่เบื้องหลัง
+
+### สถานะ
+243/243 เทสผ่าน (ไม่กระทบโค้ดหลักเลย เพิ่มแค่ launcher script ใหม่) รอผู้ใช้ดับเบิลคลิก shortcut จริงยืนยันว่าใช้งานได้ตามที่คาดหวัง
