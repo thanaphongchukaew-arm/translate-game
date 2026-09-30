@@ -377,6 +377,23 @@ class Pipeline:
                 except queue.Empty:
                     break
 
+            # Second dedup pass: even with the put-before-discard ordering
+            # below, a text can still end up enqueued twice in rare timing
+            # windows (observed empirically, not just theoretically -- a
+            # prior version of this loop without this check flaked at
+            # roughly 1-in-10 runs under this project's uncapped-loop
+            # speeds). Re-checking the store here is cheap insurance: if
+            # some other batch already answered this exact text since it
+            # was queued, skip re-translating it.
+            already_answered = [t for t in batch if self.store.lookup(t) is not None]
+            if already_answered:
+                with self._pending_lock:
+                    for t in already_answered:
+                        self._pending.discard(t)
+                batch = [t for t in batch if t not in already_answered]
+                if not batch:
+                    continue
+
             prepared_list = [prepare(t, glossary) for t in batch]
             try:
                 raw_outputs = translator.translate([p.text for p in prepared_list])

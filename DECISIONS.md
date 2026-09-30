@@ -293,3 +293,19 @@ Prompt ต้นแบบจากหัวข้อ 12 ของสเปกม
 - ยังไม่ได้ทดสอบ "ติดตั้งซ้ำบน venv ใหม่ตั้งแต่ศูนย์โดยตัดเน็ตหลังดาวน์โหลดโมเดลเสร็จ" แบบเต็มรูปแบบ (ทดสอบแค่ offline-check บน venv ที่มีอยู่แล้ว ไม่ใช่ venv ใหม่ล้วนๆ)
 
 **เฟส 7: ผ่านบางส่วน ⚠️** (verify/download/offline-check ทำงานจริงและทดสอบแล้ว, portable build + ทดสอบ venv ใหม่เต็มรูปแบบยังไม่ได้ทำ)
+
+## เฟส 5B (ต่อ) — ui_region_editor.py (2026-09-30)
+
+โมดูล: `ui_region_editor.py` (ลากกรอบบนภาพหน้าจอจริงเพื่อกำหนด region, ตั้งชื่อ+พรีเซ็ต, ลบ, บันทึกกลับเป็นไฟล์โปรไฟล์) เชื่อมปุ่ม "แก้ไข region" เข้า `ui_main.py`
+
+### บั๊กจริงที่เจอ (สำคัญ — เกี่ยวกับการเทส Qt dialogs)
+เขียนเทสแรกโดย monkeypatch `QtWidgets.QInputDialog.getText`/`getItem` และ `QtWidgets.QMessageBox.warning`/`information` ตรงๆ ที่ระดับคลาส — **เทสค้างตลอดกาล (ไม่ timeout เอง)** เพราะ static method ของคลาสที่ผูกกับ Qt/C++ (ผ่าน shiboken bindings) **monkeypatch ที่ระดับคลาสไม่ได้ผลจริง** แม้ setattr จะไม่ error ก็ตาม โค้ดจริงยังเรียก dialog ของจริงซึ่งเปิด modal event loop ค้างรอ input ที่ไม่มีวันมา (แม้อยู่ใน `QT_QPA_PLATFORM=offscreen`) ต้องฆ่าโปรเซสด้วยมือ 2 รอบกว่าจะสืบเจอสาเหตุ
+
+**แก้โดยรีแฟกเตอร์**: ย้าย logic การเรียก dialog ออกมาเป็น method ธรรมดาของ instance (`_prompt_new_region()`, `_show_warning()`, `_show_info()`) แล้วให้โค้ดหลักเรียกผ่าน method เหล่านี้แทนที่จะเรียก `QtWidgets.QInputDialog.getText(...)` ตรงๆ — เทสแค่ monkeypatch method ของ **instance** (`editor._prompt_new_region = lambda: (...)`) ซึ่งเป็น Python object ธรรมดา patch ได้ปกติ ไม่ต้องยุ่งกับ Qt internals เลย **บทเรียนสำคัญสำหรับโค้ด PySide6 ทั้งโปรเจกต์**: ห้าม unit test เรียก Qt modal dialog (`exec()`, `QInputDialog.get*`, `QMessageBox.*`) ตรงๆ โดยไม่มี layer แยกให้ inject ได้
+
+### ทดสอบจริง
+7 unit tests (headless, `QT_QPA_PLATFORM=offscreen`): ลากกรอบแล้วได้พิกัดสัดส่วนถูกต้อง (คำนวณจากพิกเซลที่แสดงบนจอ→คืนเป็น 0-1), ยกเลิก dialog ไม่เพิ่ม region, ลบ region ที่เลือกได้, บันทึกแล้วโหลดกลับมาตรงกับที่บันทึก (round-trip ผ่าน `profiles.save_profile`/`load_profile` จริง ไม่ mock), region ที่ผิดรูปแบบ (กว้าง/สูง=0) ถูกปฏิเสธอย่างปลอดภัยไม่ crash
+
+## บั๊กเพิ่มเติมที่เจอระหว่างทำงานต่อ: race condition ที่แก้ไปตอนเฟส 5B ยังไม่หายสนิท
+
+ตอนรันเทสรวมทั้งหมดซ้ำ เจอ `test_duplicate_text_across_frames_is_translated_once` (ที่เคยรายงานว่าแก้แล้วในเฟส 5B ตอน commit `bee3ac2`) **ล้มเหลวอีกครั้งแบบสุ่ม (~1 ใน 10 ครั้ง)** — พิสูจน์ด้วยการรันซ้ำ 10 รอบ ยืนยันว่ายังไม่หายสนิทจริง (การแก้ก่อนหน้าลดโอกาสเกิดลงมาก แต่ไม่ได้ปิดช่องโหว่ทั้งหมด) แก้เพิ่มด้วยการเช็กซ้ำที่ปลอดภัยกว่า: ก่อนแปลแต่ละ batch จริง ให้ `store.lookup()` ทุกข้อความในแบตช์อีกครั้ง — ถ้าข้อความไหนมีคำตอบอยู่แล้ว (อาจถูกแปลไปแล้วโดย batch อื่นในช่วงเวลาแคบๆ ที่เหลืออยู่) ให้ข้ามและล้าง pending โดยไม่แปลซ้ำ วิธีนี้ไม่ต้องรู้สาเหตุ race ที่แน่ชัด 100% แต่ปิดผลลัพธ์ที่ไม่ต้องการได้เสมอ (ปลอดภัยกว่าไล่จับ race ที่ timing แคบมากในโค้ด thread จริง) ทดสอบซ้ำ 20 รอบติดกันผ่านหมด

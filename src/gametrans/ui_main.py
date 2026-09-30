@@ -146,6 +146,10 @@ class MainWindow(QtWidgets.QWidget):
         self.manage_button.clicked.connect(self._open_manager)
         layout.addWidget(self.manage_button)
 
+        self.region_editor_button = QtWidgets.QPushButton("แก้ไข region")
+        self.region_editor_button.clicked.connect(self._open_region_editor)
+        layout.addWidget(self.region_editor_button)
+
     def _monitor_label(self, m) -> str:
         label = f"จอ {m.index} — {m.width}x{m.height} @{int(m.dpi_scale*100)}%"
         if m.is_primary:
@@ -323,6 +327,32 @@ class MainWindow(QtWidgets.QWidget):
         self._manager_dialog.refresh()
         self._manager_dialog.show()
         self._manager_dialog.raise_()
+
+    def _open_region_editor(self) -> None:
+        from gametrans.ui_region_editor import RegionEditorWindow
+
+        idx = self.monitor_combo.currentIndex()
+        if idx < 0 or idx >= len(self._monitors):
+            self.status_label.setText("ไม่พบจอที่เลือก")
+            return
+        monitor = self._monitors[idx]
+
+        # Prefer the profile the running pipeline actually picked; if the
+        # pipeline isn't running, resolve it the same way it would.
+        from gametrans.profiles import GENERIC_PROFILE
+
+        if self._pipeline is not None and self._pipeline.active_profile is not None:
+            profile = self._pipeline.active_profile
+        else:
+            from gametrans.pipeline import _default_profile_selector
+
+            try:
+                profile = _default_profile_selector(self.cfg) or GENERIC_PROFILE
+            except Exception:  # noqa: BLE001 - editor must open even if detection fails
+                profile = GENERIC_PROFILE
+
+        editor = RegionEditorWindow(profile, monitor, presets_dir=self.cfg.get("regions", {}).get("preset_dir", "presets"), parent=self)
+        editor.exec()
 
     # ------------------------------------------------------ signal slots
 

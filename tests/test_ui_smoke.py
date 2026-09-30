@@ -122,6 +122,36 @@ def test_main_window_open_manager_without_running_pipeline(qapp, tmp_path):
     win.close()
 
 
+def test_open_region_editor_uses_generic_profile_when_pipeline_not_running(qapp, tmp_path, monkeypatch):
+    """RegionEditorWindow.exec() is a real modal call -- must be replaced
+    in tests, same lesson as test_ui_region_editor.py's dialog hangs."""
+    import gametrans.ui_region_editor as editor_mod
+    from gametrans.ui_main import MainWindow
+
+    opened_with = {}
+
+    class FakeEditor:
+        def __init__(self, profile, monitor, presets_dir="presets", parent=None):
+            opened_with["profile"] = profile
+            opened_with["monitor"] = monitor
+
+        def exec(self):
+            pass
+
+    monkeypatch.setattr(editor_mod, "RegionEditorWindow", FakeEditor)
+    import gametrans.ui_main as ui_main_mod
+    monkeypatch.setattr(ui_main_mod, "enumerate_monitors", lambda: [_monitor_stub(0, True)])
+
+    cfg = _two_monitor_cfg(tmp_path)
+    win = MainWindow(cfg)
+    win.monitor_combo.setCurrentIndex(0)
+
+    win._open_region_editor()
+
+    assert opened_with["profile"].id == "generic"
+    win.close()
+
+
 def test_manager_dialog_shows_overrides_and_glossary(qapp, tmp_path):
     from gametrans.ui_manager import ManagerDialog
 
