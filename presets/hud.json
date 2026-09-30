@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "id": "hud",
+  "merge_lines": false,
+  "stable_ms_for_refine": 200,
+  "context_lines": 0,
+  "enable_refine": false,
+  "translate_position": "in_place",
+  "skip_pure_numbers": true,
+  "max_blocks_hint": 20
+}

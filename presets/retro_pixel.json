@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "retro_pixel",
+  "merge_lines": true,
+  "stable_ms_for_refine": 400,
+  "context_lines": 1,
+  "enable_refine": false,
+  "translate_position": "in_place",
+  "upscale_factor": 3.0,
+  "upscale_nearest_neighbor": true,
+  "max_blocks_hint": 10
+}

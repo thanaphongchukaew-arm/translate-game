@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "p5x",
+  "display_name": "Persona 5: The Phantom X",
+  "match": {
+    "process_name": "P5X|PhantomX|Persona5X",
+    "window_title": "Persona 5.*Phantom X|P5X"
+  },
+  "risk_level": "medium",
+  "source_lang": "en",
+  "regions": [
+    {
+      "name": "dialogue_box",
+      "rect": [0.05, 0.72, 0.95, 0.95],
+      "preset": "dialogue",
+      "min_score": 0.5,
+      "typewriter": true,
+      "translate_position": "in_place"
+    }
+  ],
+  "glossary_path": "glossary.p5x.json",
+  "capture_target": {"type": "auto"},
+  "display_mode_default": "auto",
+  "notes": "โปรไฟล์เริ่มต้นแบบประมาณการ (ยังไม่มีภาพหน้าจอจริงตอนสร้าง) — region 'dialogue_box' เป็นค่ากะประมาณตำแหน่งกล่องบทสนทนาด้านล่างจอสไตล์ Persona ทั่วไป ต้องปรับด้วย region editor หรือ wizard เมื่อมีภาพจริง/เล่นจริง (ดู DECISIONS.md เฟส 2B) เกมเป็น live-service gacha ผูกบัญชีออนไลน์ จึง risk_level=medium ตามหัวข้อ 1B/1C แม้ผู้ใช้จะเล่นคนเดียวก็ตาม (ความเสี่ยงมาจากระบบเกม ไม่ใช่โหมดเล่น)"
+}

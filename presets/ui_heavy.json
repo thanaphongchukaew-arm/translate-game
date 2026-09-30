@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "id": "ui_heavy",
+  "merge_lines": false,
+  "stable_ms_for_refine": 300,
+  "context_lines": 0,
+  "enable_refine": false,
+  "translate_position": "in_place",
+  "max_blocks_hint": 60
+}

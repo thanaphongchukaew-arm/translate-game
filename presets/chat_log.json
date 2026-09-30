@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "id": "chat_log",
+  "merge_lines": false,
+  "stable_ms_for_refine": 200,
+  "context_lines": 0,
+  "enable_refine": false,
+  "translate_position": "in_place",
+  "only_new_lines": true,
+  "max_blocks_hint": 30
+}

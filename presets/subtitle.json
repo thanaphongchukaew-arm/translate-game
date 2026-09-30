@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "id": "subtitle",
+  "merge_lines": true,
+  "stable_ms_for_refine": 250,
+  "context_lines": 1,
+  "enable_refine": true,
+  "translate_position": "in_place",
+  "max_blocks_hint": 4
+}
