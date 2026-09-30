@@ -11,6 +11,8 @@ translation_cache.json
 translation_cache.json.bak
 gametrans.log
 gametrans.log.*
+app_stdout.log
+app_stderr.log
 
 # models are downloaded locally, never committed
 models/*

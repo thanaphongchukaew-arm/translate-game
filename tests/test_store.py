@@ -127,6 +127,24 @@ def test_clear_cache_does_not_touch_overrides_or_glossary(tmp_path):
     assert store.get_glossary() == {"Sword": "ดาบ"}
 
 
+def test_list_recent_returns_most_recently_used_first(tmp_path):
+    store = _make_store(tmp_path)
+    store.put("a", "A", tier=1, final=False)
+    store.put("b", "B", tier=1, final=False)
+    store.put("c", "C", tier=1, final=False)
+
+    recent = store.list_recent()
+    assert [e.text for e in recent] == ["c", "b", "a"]
+
+
+def test_list_recent_respects_limit(tmp_path):
+    store = _make_store(tmp_path)
+    for i in range(10):
+        store.put(f"k{i}", f"v{i}", tier=1, final=False)
+
+    assert len(store.list_recent(limit=3)) == 3
+
+
 def test_thread_safety_concurrent_puts(tmp_path):
     store = _make_store(tmp_path, max_entries=10000)
 

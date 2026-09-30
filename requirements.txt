@@ -41,8 +41,12 @@
 #   translation, uninstall them and CTranslate2 will fall back to CPU
 #   automatically (see translate_fast.py).
 #
-# Phase 4 (translation, tier 2 / LLM refine) will add as decided.
-# Phase 5 (UI) will add: PySide6
+# Phase 4 (translation, tier 2 / LLM refine): scaffolding only, no new
+#   deps -- see DECISIONS.md (user chose to skip installing a real LLM).
+#
+# Phase 5 (pipeline + overlay + UI) additions:
+#   PySide6                        - GUI toolkit
+#
 # Phase 5B (window capture, hotkeys beyond ctypes) will add as needed.
 #
 # Rule (section 1.7): no cloud-service SDKs (anthropic, openai, ...) ever.
@@ -59,3 +63,4 @@ ctranslate2
 sentencepiece
 sacrebleu
 huggingface_hub
+PySide6

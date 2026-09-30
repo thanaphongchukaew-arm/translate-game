@@ -151,6 +151,14 @@ class Store:
         with self._lock:
             self._cache.clear()
 
+    def list_recent(self, limit: int = 200) -> list[Entry]:
+        """Most-recently-used cache entries first (for the translation
+        manager UI). Does not include overrides — those are listed
+        separately via get_overrides()."""
+        with self._lock:
+            entries = list(self._cache.values())
+        return list(reversed(entries))[:limit]
+
     # ---------------------------------------------------------- overrides
 
     def set_override(self, text: str, thai: str) -> None:
