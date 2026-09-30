@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 _THAI_RE = re.compile(r"[฀-๿]")
 _HAS_LETTER_RE = re.compile(r"[^\W\d_]", re.UNICODE)
-_TOKEN_RE = re.compile(r"⟦P\d+⟧")
+_TOKEN_RE = re.compile(r"\[P\d+\]")
 _NUMBER_RE = re.compile(r"\d+")
 
 _EXPLANATORY_PATTERNS = [

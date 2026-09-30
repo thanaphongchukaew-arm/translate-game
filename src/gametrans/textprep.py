@@ -8,8 +8,19 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Mapping
 
-_TOKEN_FMT = "⟦P{}⟧"  # ⟦ ⟧ = mathematical white square brackets: unlikely in game text
-_TOKEN_RE = re.compile(r"⟦P(\d+)⟧")
+_TOKEN_FMT = "[P{}]"
+_TOKEN_RE = re.compile(r"\[P(\d+)\]")
+# Token format history (see DECISIONS.md phase 3): originally used the
+# Unicode brackets "⟦P0⟧" on the theory that an exotic character
+# would never collide with real game text. Verified against the real
+# NLLB tier-1 model and that was wrong in the opposite way -- the model's
+# sentencepiece vocabulary doesn't contain those characters at all, so
+# they get replaced with <unk> ("⁇") and the placeholder is destroyed
+# every single time. Plain ASCII "[P0]" survives MOST of the time (it
+# doesn't survive 100% of the time either -- small NMT models sometimes
+# drop bracketed content entirely depending on sentence context). That
+# residual unreliability is exactly what guards.check_translation's
+# lost_numbers/unresolved_placeholder checks exist to catch.
 
 # Combined into ONE alternation and matched in a single pass over the
 # original text. This matters: chaining separate .sub() calls would let a

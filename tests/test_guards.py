@@ -59,7 +59,7 @@ def test_accepts_when_numbers_preserved():
 
 
 def test_rejects_unresolved_placeholder_token():
-    result = check_translation("Deal damage", "โจมตี ⟦P0⟧")
+    result = check_translation("Deal damage", "โจมตี [P0]")
     assert result.ok is False
     assert result.reason == "unresolved_placeholder"
 

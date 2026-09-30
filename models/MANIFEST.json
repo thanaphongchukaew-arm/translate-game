@@ -9,6 +9,42 @@
       "license": "Apache-2.0 (PaddleOCR models)",
       "purpose": "English text recognition (rec) — replaces the bundled 'ch' (Chinese) rec model, which drops spaces between English words on multi-word sentences. Used with the bundled ch_PP-OCRv4_det_infer.onnx detector (script-agnostic, unaffected).",
       "downloaded": "2026-09-30"
+    },
+    {
+      "file": "fast/nllb200-600m-int8/model.bin",
+      "sha256": "398726640CC2A02CC6A35277FA3CF2159CE8A1A66B48AA1B6C8837A47E3DD00C",
+      "source_url": "https://huggingface.co/mijuanlo/nllb-200-distilled-600M-ct2-int8",
+      "source_project": "facebook/nllb-200-distilled-600M (Meta AI), converted to CTranslate2 int8 by mijuanlo",
+      "license": "CC-BY-NC-4.0 (non-commercial, personal use only)",
+      "purpose": "Tier-1 (fast) English->Thai translation, int8-quantized CTranslate2 format",
+      "downloaded": "2026-09-30"
+    },
+    {
+      "file": "fast/nllb200-600m-int8/config.json",
+      "sha256": "BF8ADE7C3F1683E5F13001BAB18B04A1CCD1A6801208EFD227ED13B2FF6F15E7",
+      "source_url": "https://huggingface.co/mijuanlo/nllb-200-distilled-600M-ct2-int8",
+      "source_project": "mijuanlo/nllb-200-distilled-600M-ct2-int8",
+      "license": "CC-BY-NC-4.0",
+      "purpose": "CTranslate2 model config for the tier-1 translator",
+      "downloaded": "2026-09-30"
+    },
+    {
+      "file": "fast/nllb200-600m-int8/shared_vocabulary.json",
+      "sha256": "AF53BFD0E6F726209E7325E45B87AB3B14E5856F7D42D7B9BE91DE3287C45267",
+      "source_url": "https://huggingface.co/mijuanlo/nllb-200-distilled-600M-ct2-int8",
+      "source_project": "mijuanlo/nllb-200-distilled-600M-ct2-int8",
+      "license": "CC-BY-NC-4.0",
+      "purpose": "CTranslate2 vocabulary mapping for the tier-1 translator",
+      "downloaded": "2026-09-30"
+    },
+    {
+      "file": "fast/nllb200-600m-int8/tokenizer/sentencepiece.bpe.model",
+      "sha256": "14BB8DFB35C0FFDEA7BC01E56CEA38B9E3D5EFCDCB9C251D6B40538E1AAB555A",
+      "source_url": "https://huggingface.co/facebook/nllb-200-distilled-600M",
+      "source_project": "facebook/nllb-200-distilled-600M (official)",
+      "license": "CC-BY-NC-4.0",
+      "purpose": "SentencePiece tokenizer, downloaded directly from the official Meta AI repo (not from the third-party CTranslate2 conversion) for provenance clarity",
+      "downloaded": "2026-09-30"
     }
   ]
 }

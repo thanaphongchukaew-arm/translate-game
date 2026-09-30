@@ -1,0 +1,64 @@
+{"src": "Start Game", "ref": "เริ่มเกม", "category": "ui_short", "ref_source": "draft-by-llm"}
+{"src": "Options", "ref": "ตั้งค่า", "category": "ui_short", "ref_source": "draft-by-llm"}
+{"src": "Save and Quit", "ref": "บันทึกและออก", "category": "ui_short", "ref_source": "draft-by-llm"}
+{"src": "Inventory", "ref": "กระเป๋าไอเทม", "category": "ui_short", "ref_source": "draft-by-llm"}
+{"src": "Press E to interact", "ref": "กด E เพื่อโต้ตอบ", "category": "ui_short", "ref_source": "draft-by-llm"}
+{"src": "Continue", "ref": "ดำเนินการต่อ", "category": "ui_short", "ref_source": "draft-by-llm"}
+{"src": "Are you sure?", "ref": "แน่ใจหรือไม่?", "category": "ui_short", "ref_source": "draft-by-llm"}
+{"src": "New Game", "ref": "เกมใหม่", "category": "ui_short", "ref_source": "draft-by-llm"}
+{"src": "Load Game", "ref": "โหลดเกม", "category": "ui_short", "ref_source": "draft-by-llm"}
+{"src": "Settings", "ref": "การตั้งค่า", "category": "ui_short", "ref_source": "draft-by-llm"}
+{"src": "Back", "ref": "ย้อนกลับ", "category": "ui_short", "ref_source": "draft-by-llm"}
+{"src": "Confirm", "ref": "ยืนยัน", "category": "ui_short", "ref_source": "draft-by-llm"}
+{"src": "Cancel", "ref": "ยกเลิก", "category": "ui_short", "ref_source": "draft-by-llm"}
+{"src": "Iron Sword (+3)", "ref": "ดาบเหล็ก (+3)", "category": "item_skill", "ref_source": "draft-by-llm"}
+{"src": "Potion of Minor Healing", "ref": "ยาฟื้นฟูเล็กน้อย", "category": "item_skill", "ref_source": "draft-by-llm"}
+{"src": "Ancient Key", "ref": "กุญแจโบราณ", "category": "item_skill", "ref_source": "draft-by-llm"}
+{"src": "Critical Hit: 150% damage", "ref": "โจมตีคริติคอล: ดาเมจ 150%", "category": "item_skill", "ref_source": "draft-by-llm"}
+{"src": "Wooden Shield", "ref": "โล่ไม้", "category": "item_skill", "ref_source": "draft-by-llm"}
+{"src": "Fire Resistance +10%", "ref": "ต้านทานไฟ +10%", "category": "item_skill", "ref_source": "draft-by-llm"}
+{"src": "Quest updated: Find the missing merchant", "ref": "อัปเดตเควสต์: ตามหาพ่อค้าที่หายไป", "category": "quest_system", "ref_source": "draft-by-llm"}
+{"src": "Your inventory is full.", "ref": "กระเป๋าไอเทมของคุณเต็มแล้ว", "category": "quest_system", "ref_source": "draft-by-llm"}
+{"src": "You have learned a new skill.", "ref": "คุณได้เรียนรู้สกิลใหม่", "category": "quest_system", "ref_source": "draft-by-llm"}
+{"src": "Quest complete!", "ref": "ทำเควสต์สำเร็จ!", "category": "quest_system", "ref_source": "draft-by-llm"}
+{"src": "New area discovered.", "ref": "ค้นพบพื้นที่ใหม่", "category": "quest_system", "ref_source": "draft-by-llm"}
+{"src": "You shouldn't have come here, traveler. The forest remembers everything.", "ref": "คุณไม่ควรมาที่นี่เลย นักเดินทาง ป่าแห่งนี้จดจำทุกสิ่งเอาไว้", "category": "dialogue", "ref_source": "draft-by-llm"}
+{"src": "I'll meet you at the old mill after sunset, and don't tell anyone.", "ref": "ฉันจะไปเจอเธอที่โรงสีเก่าหลังพระอาทิตย์ตก และอย่าบอกใครเชียว", "category": "dialogue", "ref_source": "draft-by-llm"}
+{"src": "Wait... did you hear that?", "ref": "เดี๋ยวก่อน... ได้ยินเสียงนั้นไหม?", "category": "dialogue", "ref_source": "draft-by-llm"}
+{"src": "We've been waiting for you for a long time.", "ref": "พวกเรารอคุณมานานแล้ว", "category": "dialogue", "ref_source": "draft-by-llm"}
+{"src": "This is the last time I'm warning you.", "ref": "นี่เป็นครั้งสุดท้ายที่ฉันจะเตือนเธอ", "category": "dialogue", "ref_source": "draft-by-llm"}
+{"src": "Lord Aldric of Stormwatch", "ref": "ลอร์ดอัลดริกแห่งสตอร์มวอตช์", "category": "proper_noun", "ref_source": "draft-by-llm"}
+{"src": "The Whispering Caverns", "ref": "ถ้ำเสียงกระซิบ", "category": "proper_noun", "ref_source": "draft-by-llm"}
+{"src": "HP 120/200", "ref": "HP 120/200", "category": "special_format", "ref_source": "draft-by-llm"}
+{"src": "Deal {0} damage", "ref": "สร้างความเสียหาย {0}", "category": "special_format", "ref_source": "draft-by-llm"}
+{"src": "You found %d gold.", "ref": "คุณพบทอง %d เหรียญ", "category": "special_format", "ref_source": "draft-by-llm"}
+{"src": "GAME OVER", "ref": "เกมโอเวอร์", "category": "special_format", "ref_source": "draft-by-llm"}
+{"src": "LEVEL UP!", "ref": "เลเวลอัป!", "category": "special_format", "ref_source": "draft-by-llm"}
+{"src": "The ancient door slowly opened, revealing a passage that led deep into", "ref": "ประตูโบราณค่อยๆ เปิดออก เผยให้เห็นทางเดินที่นำลึกเข้าไปสู่", "category": "hard_case_cutoff", "ref_source": "draft-by-llm"}
+{"src": "Save", "ref": "บันทึก / ช่วยชีวิต", "category": "hard_case_ambiguous", "ref_source": "draft-by-llm"}
+{"src": "Yeah, whatever you say, boss.", "ref": "อือ แล้วแต่หัวหน้าจะว่ายังไงก็ได้", "category": "hard_case_slang", "ref_source": "draft-by-llm"}
+{"src": "After years of searching, the old scholar finally found the lost manuscript hidden beneath the temple ruins, its pages worn but its secrets still intact, waiting for someone brave enough to uncover the truth within.", "ref": "หลังจากค้นหามาหลายปี นักปราชญ์ชราในที่สุดก็พบต้นฉบับที่สูญหายซึ่งซ่อนอยู่ใต้ซากปรักหักพังของวิหาร หน้ากระดาษเก่าโทรมแต่ความลับยังคงสมบูรณ์ รอคอยผู้กล้าที่จะเปิดเผยความจริงภายใน", "category": "hard_case_long", "ref_source": "draft-by-llm"}
+{"src": "Summon", "ref": "สุ่มเรียก", "category": "gacha_ui", "ref_source": "draft-by-llm"}
+{"src": "Rate-Up", "ref": "เพิ่มอัตรา", "category": "gacha_ui", "ref_source": "draft-by-llm"}
+{"src": "Pity", "ref": "การันตี", "category": "gacha_ui", "ref_source": "draft-by-llm"}
+{"src": "Daily Quest", "ref": "เควสต์ประจำวัน", "category": "gacha_ui", "ref_source": "draft-by-llm"}
+{"src": "Stamina", "ref": "พลังงาน", "category": "gacha_ui", "ref_source": "draft-by-llm"}
+{"src": "Battle Pass", "ref": "แบทเทิลพาส", "category": "gacha_ui", "ref_source": "draft-by-llm"}
+{"src": "Limited Banner", "ref": "แบนเนอร์จำกัดเวลา", "category": "gacha_ui", "ref_source": "draft-by-llm"}
+{"src": "Tap to continue", "ref": "แตะเพื่อดำเนินการต่อ", "category": "gacha_ui", "ref_source": "draft-by-llm"}
+{"src": "Skip", "ref": "ข้าม", "category": "gacha_ui", "ref_source": "draft-by-llm"}
+{"src": "Auto", "ref": "อัตโนมัติ", "category": "gacha_ui", "ref_source": "draft-by-llm"}
+{"src": "Log", "ref": "บันทึก", "category": "gacha_ui", "ref_source": "draft-by-llm"}
+{"src": "Claim All", "ref": "รับทั้งหมด", "category": "gacha_ui", "ref_source": "draft-by-llm"}
+{"src": "Insufficient resources", "ref": "ทรัพยากรไม่เพียงพอ", "category": "gacha_ui", "ref_source": "draft-by-llm"}
+{"src": "[Guild] Alice: anyone up for the raid tonight?", "ref": "[กิลด์] Alice: มีใครว่างตีเรดคืนนี้ไหม?", "category": "chat_online", "ref_source": "draft-by-llm"}
+{"src": "You have joined the party.", "ref": "คุณได้เข้าร่วมปาร์ตี้แล้ว", "category": "chat_online", "ref_source": "draft-by-llm"}
+{"src": "Connection lost. Reconnecting...", "ref": "การเชื่อมต่อขาดหาย กำลังเชื่อมต่อใหม่...", "category": "chat_online", "ref_source": "draft-by-llm"}
+{"src": "(whispering) They're coming.", "ref": "(กระซิบ) พวกมันมาแล้ว", "category": "subtitle", "ref_source": "draft-by-llm"}
+{"src": "We don't have much time.", "ref": "เราไม่มีเวลามากนัก", "category": "subtitle", "ref_source": "draft-by-llm"}
+{"src": "Research complete: Iron Working", "ref": "วิจัยสำเร็จ: การตีเหล็ก", "category": "strategy_sim", "ref_source": "draft-by-llm"}
+{"src": "Not enough gold.", "ref": "ทองไม่พอ", "category": "strategy_sim", "ref_source": "draft-by-llm"}
+{"src": "Build a granary (12 turns)", "ref": "สร้างยุ้งฉาง (12 เทิร์น)", "category": "strategy_sim", "ref_source": "draft-by-llm"}
+{"src": "Hold F to revive", "ref": "กดค้าง F เพื่อช่วยชุบชีวิต", "category": "shooter_action", "ref_source": "draft-by-llm"}
+{"src": "Enemy spotted", "ref": "พบศัตรู", "category": "shooter_action", "ref_source": "draft-by-llm"}
+{"src": "Objective updated", "ref": "อัปเดตเป้าหมาย", "category": "shooter_action", "ref_source": "draft-by-llm"}

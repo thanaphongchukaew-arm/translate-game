@@ -27,8 +27,21 @@
 #                                     together — they conflict on the same
 #                                     `onnxruntime` import name.)
 #
-# Phase 3/4 (translation) will add: ctranslate2, sentencepiece/tokenizers,
-#   sacrebleu, requests
+# Phase 3 (translation, tier 1) additions:
+#   ctranslate2                    - runs the quantized NLLB-200 model
+#   sentencepiece                  - NLLB's tokenizer
+#   sacrebleu                      - chrF scoring for tools/bakeoff.py
+#   huggingface_hub                - one-time model download only (build
+#                                     tool territory; not imported by the
+#                                     app itself at runtime)
+#   Also installed but NOT in this list on purpose: nvidia-cublas-cu12,
+#   nvidia-cudnn-cu12 -- these provide the CUDA/cuDNN DLLs ctranslate2's
+#   CUDA path needs (this machine has no system CUDA Toolkit). They're
+#   large (~1GB combined); if disk space matters more than GPU speed for
+#   translation, uninstall them and CTranslate2 will fall back to CPU
+#   automatically (see translate_fast.py).
+#
+# Phase 4 (translation, tier 2 / LLM refine) will add as decided.
 # Phase 5 (UI) will add: PySide6
 # Phase 5B (window capture, hotkeys beyond ctypes) will add as needed.
 #
@@ -42,3 +55,7 @@ dxcam
 opencv-python-headless
 rapidocr-onnxruntime
 onnxruntime-directml
+ctranslate2
+sentencepiece
+sacrebleu
+huggingface_hub
