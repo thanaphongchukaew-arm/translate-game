@@ -57,10 +57,10 @@ def _ensure_cuda_dlls_on_path() -> None:
     _cuda_dll_path_added = True
 
 
-def _create_translator(model_dir: str, device: str):
+def _create_translator(model_dir: str, device: str, intra_threads: int = 0):
     import ctranslate2
 
-    return ctranslate2.Translator(model_dir, device=device)
+    return ctranslate2.Translator(model_dir, device=device, intra_threads=intra_threads)
 
 
 def _cuda_actually_works(translator, tokenizer, source_flores: str, target_flores: str) -> bool:
@@ -73,8 +73,8 @@ def _cuda_actually_works(translator, tokenizer, source_flores: str, target_flore
         return False
 
 
-def _get_translator(model_dir: str, device: str, source_flores: str, target_flores: str):
-    key = f"{model_dir}|{device}"
+def _get_translator(model_dir: str, device: str, source_flores: str, target_flores: str, intra_threads: int = 0):
+    key = f"{model_dir}|{device}|{intra_threads}"
     if key in _translator_cache:
         return _translator_cache[key]
 
@@ -86,15 +86,17 @@ def _get_translator(model_dir: str, device: str, source_flores: str, target_flor
     if device == "auto":
         if ctranslate2.get_cuda_device_count() > 0:
             try:
+                # intra_threads is a CPU-side OpenMP knob -- irrelevant on
+                # the cuda path, so don't pass it here.
                 candidate = _create_translator(model_dir, "cuda")
                 if _cuda_actually_works(candidate, tokenizer, source_flores, target_flores):
                     _translator_cache[key] = candidate
                     return candidate
             except Exception as exc:  # noqa: BLE001 - fall back to cpu
                 logger.warning("translate_fast: cuda unavailable (%s) — using cpu", exc)
-        translator = _create_translator(model_dir, "cpu")
+        translator = _create_translator(model_dir, "cpu", intra_threads)
     else:
-        translator = _create_translator(model_dir, device)
+        translator = _create_translator(model_dir, device, intra_threads if device == "cpu" else 0)
 
     _translator_cache[key] = translator
     return translator
@@ -127,18 +129,32 @@ class NllbCTranslator:
         target_lang: str = "th",
         device: str = "auto",
         beam_size: int = 1,
+        intra_threads: int = 0,
     ) -> None:
         self.model_dir = model_dir
         self.source_flores = _LANG_TO_FLORES.get(source_lang, "eng_Latn")
         self.target_flores = _LANG_TO_FLORES.get(target_lang, "tha_Thai")
         self.device = device
         self.beam_size = beam_size
+        # CPU-only OpenMP threads per translate call. Tried tuning this up
+        # from ctranslate2's own default (0) hoping for a speed win -- an
+        # initial single-shot benchmark suggested ~12% (253ms->224ms), but
+        # a properly interleaved A/B (same process, alternating calls, 30+
+        # samples each, controlling for system-load drift between runs)
+        # showed intra_threads=4/8 statistically indistinguishable from 0,
+        # sometimes slightly worse. A single short sentence at beam_size=1
+        # doesn't have enough parallel matmul work per decode step to
+        # benefit from more OpenMP threads. Left as 0 (see DECISIONS.md);
+        # kept configurable in case it helps on different hardware.
+        self.intra_threads = intra_threads
 
     def translate(self, texts: Sequence[str], context: Sequence[str] = ()) -> list[str]:
         if not texts:
             return []
         tokenizer = _get_tokenizer(self.model_dir)
-        translator = _get_translator(self.model_dir, self.device, self.source_flores, self.target_flores)
+        translator = _get_translator(
+            self.model_dir, self.device, self.source_flores, self.target_flores, self.intra_threads
+        )
 
         source_tokens = []
         for text in texts:

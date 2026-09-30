@@ -121,6 +121,7 @@ def _default_translator_factory(cfg: dict):
         target_lang=lang_cfg.get("target", "th"),
         device=fast_cfg.get("device", "auto"),
         beam_size=int(fast_cfg.get("beam_size", 1)),
+        intra_threads=int(fast_cfg.get("intra_threads", 0)),
     )
 
 

@@ -29,7 +29,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "rec_model_path": "models/ocr/en/en_PP-OCRv3_rec_infer.onnx",
     },
     "layout": {"hold_cycles": 2, "stable_cycles_for_refine": 2, "stable_ms_for_refine": 500, "context_lines": 3},
-    "fast": {"model_dir": "models/fast/nllb200-600m-int8", "beam_size": 1, "max_batch": 16, "device": "auto"},
+    "fast": {"model_dir": "models/fast/nllb200-600m-int8", "beam_size": 1, "max_batch": 16, "device": "auto", "intra_threads": 0},
     "refine": {
         "enabled": "auto",
         "backend": "llama-server",
@@ -64,6 +64,7 @@ _RANGES: dict[str, tuple[float, float]] = {
     "layout.context_lines": (0, 20),
     "fast.beam_size": (1, 16),
     "fast.max_batch": (1, 256),
+    "fast.intra_threads": (0, 64),
     "refine.port": (1, 65535),
     "refine.idle_unload_s": (0, 86400),
     "refine.max_vram_mb": (0, 262144),
