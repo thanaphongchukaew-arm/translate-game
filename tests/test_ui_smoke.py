@@ -152,6 +152,34 @@ def test_open_region_editor_uses_generic_profile_when_pipeline_not_running(qapp,
     win.close()
 
 
+def test_open_wizard_creates_dialog_for_selected_monitor(qapp, tmp_path, monkeypatch):
+    import gametrans.ui_main as ui_main_mod
+
+    monkeypatch.setattr(ui_main_mod, "enumerate_monitors", lambda: [_monitor_stub(0, True)])
+
+    opened = {}
+
+    class FakeWizard:
+        def __init__(self, monitor, parent=None):
+            opened["monitor"] = monitor
+
+        def exec(self):
+            opened["exec_called"] = True
+
+    import gametrans.profile_wizard_ui as wizard_mod
+    monkeypatch.setattr(wizard_mod, "WizardDialog", FakeWizard)
+
+    from gametrans.ui_main import MainWindow
+
+    win = MainWindow(_two_monitor_cfg(tmp_path))
+    win.monitor_combo.setCurrentIndex(0)
+    win._open_wizard()
+
+    assert opened.get("exec_called") is True
+    assert opened["monitor"].index == 0
+    win.close()
+
+
 def test_manager_dialog_shows_overrides_and_glossary(qapp, tmp_path):
     from gametrans.ui_manager import ManagerDialog
 

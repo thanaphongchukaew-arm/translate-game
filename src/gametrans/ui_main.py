@@ -150,6 +150,10 @@ class MainWindow(QtWidgets.QWidget):
         self.region_editor_button.clicked.connect(self._open_region_editor)
         layout.addWidget(self.region_editor_button)
 
+        self.wizard_button = QtWidgets.QPushButton("สร้างโปรไฟล์จากเกมนี้")
+        self.wizard_button.clicked.connect(self._open_wizard)
+        layout.addWidget(self.wizard_button)
+
     def _monitor_label(self, m) -> str:
         label = f"จอ {m.index} — {m.width}x{m.height} @{int(m.dpi_scale*100)}%"
         if m.is_primary:
@@ -353,6 +357,18 @@ class MainWindow(QtWidgets.QWidget):
 
         editor = RegionEditorWindow(profile, monitor, presets_dir=self.cfg.get("regions", {}).get("preset_dir", "presets"), parent=self)
         editor.exec()
+
+    def _open_wizard(self) -> None:
+        from gametrans.profile_wizard_ui import WizardDialog
+
+        idx = self.monitor_combo.currentIndex()
+        if idx < 0 or idx >= len(self._monitors):
+            self.status_label.setText("ไม่พบจอที่เลือก")
+            return
+        monitor = self._monitors[idx]
+
+        wizard = WizardDialog(monitor, parent=self)
+        wizard.exec()
 
     # ------------------------------------------------------ signal slots
 

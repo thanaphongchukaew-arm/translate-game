@@ -301,7 +301,7 @@ Prompt ต้นแบบจากหัวข้อ 12 ของสเปกม
 ### บั๊กจริงที่เจอ (สำคัญ — เกี่ยวกับการเทส Qt dialogs)
 เขียนเทสแรกโดย monkeypatch `QtWidgets.QInputDialog.getText`/`getItem` และ `QtWidgets.QMessageBox.warning`/`information` ตรงๆ ที่ระดับคลาส — **เทสค้างตลอดกาล (ไม่ timeout เอง)** เพราะ static method ของคลาสที่ผูกกับ Qt/C++ (ผ่าน shiboken bindings) **monkeypatch ที่ระดับคลาสไม่ได้ผลจริง** แม้ setattr จะไม่ error ก็ตาม โค้ดจริงยังเรียก dialog ของจริงซึ่งเปิด modal event loop ค้างรอ input ที่ไม่มีวันมา (แม้อยู่ใน `QT_QPA_PLATFORM=offscreen`) ต้องฆ่าโปรเซสด้วยมือ 2 รอบกว่าจะสืบเจอสาเหตุ
 
-**แก้โดยรีแฟกเตอร์**: ย้าย logic การเรียก dialog ออกมาเป็น method ธรรมดาของ instance (`_prompt_new_region()`, `_show_warning()`, `_show_info()`) แล้วให้โค้ดหลักเรียกผ่าน method เหล่านี้แทนที่จะเรียก `QtWidgets.QInputDialog.getText(...)` ตรงๆ — เทสแค่ monkeypatch method ของ **instance** (`editor._prompt_new_region = lambda: (...)`) ซึ่งเป็น Python object ธรรมดา patch ได้ปกติ ไม่ต้องยุ่งกับ Qt internals เลย **บทเรียนสำคัญสำหรับโค้ด PySide6 ทั้งโปรเจกต์**: ห้าม unit test เรียก Qt modal dialog (`exec()`, `QInputDialog.get*`, `QMessageBox.*`) ตรงๆ โดยไม่มี layer แยกให้ inject ได้
+**แก้โดยรีแฟกเตอร์**: ย้าย logic การเรียก dialog ออกมาเป็น method ธรรมดาของ instance (`_prompt_new_region()`, `_show_warning()`, `_show_info()`) แล้วให้โค้ดหลักเรียกผ่าน method เหล่านี้แทนที่จะเรียก `QtWidgets.QInputDialog.getText(...)` ตรงๆ — เทสแค่ monkeypatch method ของ **instance** (`editor._prompt_new_region = lambda: (...)`) ซึ่งเป็น Python object ธรรมดา patch ได้ปกติ ไม่ต้องยุ่งกับ Qt internals เลย **บทเรียนสำคัญสำหรับโค้ด PySide6 ทั้งโปรเจกต์**: ห้าม unit test เรียก Qt modal dialog (`exec()`, `QInputDialog.get*`, `QMessageBox.*`) ตรงๆ โดยไม่มี layer แยกให้ inject ได้ — นำบทเรียนนี้ไปใช้ตั้งแต่ต้นตอนเขียน `profile_wizard_ui.py` ด้านล่าง จึงไม่เจอปัญหาเดิมซ้ำ
 
 ### ทดสอบจริง
 7 unit tests (headless, `QT_QPA_PLATFORM=offscreen`): ลากกรอบแล้วได้พิกัดสัดส่วนถูกต้อง (คำนวณจากพิกเซลที่แสดงบนจอ→คืนเป็น 0-1), ยกเลิก dialog ไม่เพิ่ม region, ลบ region ที่เลือกได้, บันทึกแล้วโหลดกลับมาตรงกับที่บันทึก (round-trip ผ่าน `profiles.save_profile`/`load_profile` จริง ไม่ mock), region ที่ผิดรูปแบบ (กว้าง/สูง=0) ถูกปฏิเสธอย่างปลอดภัยไม่ crash
@@ -309,3 +309,24 @@ Prompt ต้นแบบจากหัวข้อ 12 ของสเปกม
 ## บั๊กเพิ่มเติมที่เจอระหว่างทำงานต่อ: race condition ที่แก้ไปตอนเฟส 5B ยังไม่หายสนิท
 
 ตอนรันเทสรวมทั้งหมดซ้ำ เจอ `test_duplicate_text_across_frames_is_translated_once` (ที่เคยรายงานว่าแก้แล้วในเฟส 5B ตอน commit `bee3ac2`) **ล้มเหลวอีกครั้งแบบสุ่ม (~1 ใน 10 ครั้ง)** — พิสูจน์ด้วยการรันซ้ำ 10 รอบ ยืนยันว่ายังไม่หายสนิทจริง (การแก้ก่อนหน้าลดโอกาสเกิดลงมาก แต่ไม่ได้ปิดช่องโหว่ทั้งหมด) แก้เพิ่มด้วยการเช็กซ้ำที่ปลอดภัยกว่า: ก่อนแปลแต่ละ batch จริง ให้ `store.lookup()` ทุกข้อความในแบตช์อีกครั้ง — ถ้าข้อความไหนมีคำตอบอยู่แล้ว (อาจถูกแปลไปแล้วโดย batch อื่นในช่วงเวลาแคบๆ ที่เหลืออยู่) ให้ข้ามและล้าง pending โดยไม่แปลซ้ำ วิธีนี้ไม่ต้องรู้สาเหตุ race ที่แน่ชัด 100% แต่ปิดผลลัพธ์ที่ไม่ต้องการได้เสมอ (ปลอดภัยกว่าไล่จับ race ที่ timing แคบมากในโค้ด thread จริง) ทดสอบซ้ำ 20 รอบติดกันผ่านหมด
+
+## เฟส 5B (ต่อ) — profile_wizard.py + profile_wizard_ui.py (2026-09-30)
+
+โมดูล: `profile_wizard.py` (เอนจินวิเคราะห์ ไม่มี GUI), `profile_wizard_ui.py` (ห่อ UI บางๆ) เชื่อมปุ่ม "สร้างโปรไฟล์จากเกมนี้" เข้า `ui_main.py`
+
+### อัลกอริทึม (ตามหัวข้อ 3E)
+1. เก็บภาพตัวอย่าง (กดทีละภาพ หรือ "เรียนรู้ 2 นาที" เก็บอัตโนมัติทุก 2 วิ)
+2. รัน OCR ทุกภาพ แล้ว**จับกลุ่มตำแหน่ง** (IoU ระหว่างกล่องข้อความข้ามเฟรม ≥0.3 ถือว่าเป็นตำแหน่งเดียวกัน) เป็น "slot"
+3. จำแนกพฤติกรรมแต่ละ slot จากข้อความที่เปลี่ยนไปข้ามเฟรม: อยู่ >50% ของภาพ+ข้อความไม่เปลี่ยน → `static` (สั้น→`ui_heavy`, ตัวเลข/สัญลักษณ์ล้วน→`hud`); อยู่ >50%+ข้อความยาวขึ้นเรื่อยๆ แบบ prefix ต่อกัน → `typewriter`→`dialogue`; อยู่ >50%+ข้อความเปลี่ยนแต่ไม่ใช่ prefix → `changing`→`dialogue`; อยู่ <50% ของภาพ → `transient`→`subtitle`
+4. ตำแหน่ง region เสนอ = union ของกล่องทั้งหมดใน slot + padding เล็กน้อย แปลงเป็นพิกัดสัดส่วน
+5. ภาษาต้นทาง: ใช้ `lang.detect_source_language()` กับข้อความทั้งหมดที่เจอ (ใช้ของเฟส 2B เดิม ไม่เขียนใหม่)
+6. glossary ตั้งต้น: คำขึ้นต้นตัวใหญ่ที่พบซ้ำ ≥2 ครั้งข้ามภาพตัวอย่าง กรองคำศัพท์ทั่วไปออกด้วย wordlist เดิมจาก `ocr_post.py` (ใช้ซ้ำ ไม่สร้างใหม่) — ไม่เดาคำแปล ให้ผู้ใช้กรอกเอง ไม่ใช้เน็ต/บริการภายนอกตามกฎ
+
+**ผลลัพธ์เป็นข้อเสนอเท่านั้น** ไม่มีการอ้างความแม่นยำ 100% ตามที่สเปกกำหนด — ผู้ใช้ต้องกด "สร้างโปรไฟล์" แล้วปรับต่อผ่าน `ui_region_editor.py` ที่เปิดต่อท้ายอัตโนมัติก่อนบันทึกจริง
+
+### ทดสอบจริง (23 เทสรวม 2 ไฟล์)
+`test_profile_wizard.py` (12 เทส, ไม่ใช้ GUI เลย ทดสอบตรรกะล้วนๆ): ยืนยันการจำแนกพฤติกรรมทั้ง 4 แบบถูกต้องด้วยข้อมูลจำลอง, สอง region คนละตำแหน่งไม่ถูกปนกัน, พิกัดที่เสนออยู่ในช่วง 0-1 เสมอ, ตรวจภาษาถูกต้อง, กรองคำ glossary เอาคำที่ซ้ำแค่ครั้งเดียวออก
+
+`test_profile_wizard_ui.py` (11 เทส, headless): **นำบทเรียนเรื่อง Qt modal dialog จากการทำ region editor มาใช้ตั้งแต่แรก** จึงไม่ติดปัญหาเทสค้างซ้ำ — แต่ยังเจอบั๊กเล็กจริง: `get_foreground_window_info` ถูก import แบบ module-level ใน `profile_wizard_ui.py` (ไม่ใช่ lazy import) ทำให้ monkeypatch ที่ระดับ `platform_win` ต้นทางไม่มีผล ต้อง patch ที่ local binding ใน `profile_wizard_ui` เอง — เป็นความแตกต่างสำคัญระหว่าง `import X` (bind ตายตัวตอน import) กับ `from X import Y` ที่ทำ**ภายในฟังก์ชัน** (bind ใหม่ทุกครั้งที่เรียก จึง patch ต้นทางได้ผล) ต้องจำหลักนี้ไว้เวลาเขียนเทสโมดูลอื่นต่อไป
+
+**เฟส 5B: ผ่าน ✅ ครบทุกส่วนที่วางแผนไว้** (region editor + wizard + region↔pipeline wiring + second screen + watchdog + tray/hotkey/autostart) **เหลือเฉพาะ WGC (window capture, `capture_target=window`) ที่ยังไม่ได้ทำ** เป็นงานค้างสุดท้ายของเฟสนี้
