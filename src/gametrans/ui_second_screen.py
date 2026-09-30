@@ -43,7 +43,7 @@ class MirrorWindow(QtWidgets.QWidget):
     monitor. Never the capture target itself (caller picks a different
     monitor than the one being captured -- see ui_main.py)."""
 
-    def __init__(self, output_monitor: MonitorInfo, mirror_fps: int = 30) -> None:
+    def __init__(self, output_monitor: MonitorInfo, mirror_fps: int = 60) -> None:
         super().__init__()
         self._output_monitor = output_monitor
         self._pipeline: Pipeline | None = None

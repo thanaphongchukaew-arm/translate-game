@@ -245,7 +245,7 @@ class MainWindow(QtWidgets.QWidget):
             self.status_label.setText("ไม่พบจอที่เลือก")
             return
 
-        mirror_fps = int(self.cfg.get("display", {}).get("mirror_fps", 30))
+        mirror_fps = int(self.cfg.get("display", {}).get("mirror_fps", 60))
         if mode == "A":
             self._output_window = OverlayWindow(
                 capture_monitor,

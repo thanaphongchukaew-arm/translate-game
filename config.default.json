@@ -17,7 +17,7 @@
   "refine": {"enabled": "auto", "backend": "llama-server", "model_path": "", "host": "127.0.0.1", "port": 8089, "idle_unload_s": 0, "max_vram_mb": 0},
   "text": {"keep_names": true, "glossary_path": "glossary.json", "overrides_path": "overrides.json"},
   "overlay": {"font": "Leelawadee UI", "min_font_px": 11, "bg_rgba": [12, 12, 18, 225], "fg_rgb": [255, 255, 255]},
-  "display": {"mode": "auto", "output_monitor": "auto", "mirror_fps": 30, "visible_to_stream": false},
+  "display": {"mode": "auto", "output_monitor": "auto", "mirror_fps": 60, "visible_to_stream": false},
   "regions": {"profile_dir": "profiles", "active_profile": "auto", "preset": "auto", "auto_discover_interval_s": 1.0},
   "watchdog": {"stall_seconds": 10, "max_restarts_per_min": 6},
   "language": {"source": "auto", "target": "th", "cjk_pivot_via_english": "auto"},

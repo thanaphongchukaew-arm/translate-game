@@ -358,7 +358,7 @@ class Pipeline:
             logger.error("pipeline: raw capture (mirror) backend failed to start: %s", exc)
             return
 
-        target_fps = float(self.cfg.get("display", {}).get("mirror_fps", 30) or 30)
+        target_fps = float(self.cfg.get("display", {}).get("mirror_fps", 60) or 60)
         min_interval_s = 1.0 / max(target_fps, 1.0)
         last_loop_start = 0.0
 

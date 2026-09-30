@@ -41,7 +41,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "text": {"keep_names": True, "glossary_path": "glossary.json", "overrides_path": "overrides.json"},
     "overlay": {"font": "Leelawadee UI", "min_font_px": 11, "bg_rgba": [12, 12, 18, 225], "fg_rgb": [255, 255, 255]},
-    "display": {"mode": "auto", "output_monitor": "auto", "mirror_fps": 30, "visible_to_stream": False},
+    "display": {"mode": "auto", "output_monitor": "auto", "mirror_fps": 60, "visible_to_stream": False},
     "regions": {"profile_dir": "profiles", "active_profile": "auto", "preset": "auto", "auto_discover_interval_s": 1.0},
     "watchdog": {"stall_seconds": 10, "max_restarts_per_min": 6},
     "language": {"source": "auto", "target": "th", "cjk_pivot_via_english": "auto"},
