@@ -452,6 +452,45 @@ def test_no_regions_falls_back_to_full_screen_scan(store):
     assert frames[-1].blocks[0].block.text == "Hello"
 
 
+def test_profile_select_delay_s_defers_profile_selection(store):
+    """Regression test for a real user report traced to this race: profile
+    selection reads the CURRENT foreground window, but the OCR thread
+    starts the instant Pipeline.start() is called -- if that's autostart
+    firing on app launch (or a click on the start button), the user's own
+    app window is still focused at that exact instant, not the game they
+    are about to alt-tab to, so it silently locks onto the full-screen
+    `generic` profile for the whole session even with a correct
+    profiles/*.json match rule. `regions.profile_select_delay_s` (default
+    0 here -- see pipeline.py for why tests get 0 but real runs get 2.5s)
+    must delay the profile_selector call by that many seconds."""
+    call_times: list[float] = []
+
+    def timestamped_selector(cfg):
+        call_times.append(time.monotonic())
+        return None
+
+    ocr = FakeOcr([OcrLine(x1=0, y1=0, x2=100, y2=20, text="Hello", score=0.9)])
+    pipe = Pipeline(
+        cfg={"fast": {}, "cache": {}, "text": {}, "regions": {"profile_select_delay_s": 0.3}},
+        on_frame=lambda f: None,
+        on_status=lambda s: None,
+        store=store,
+        profile_selector=timestamped_selector,
+        capture_factory=lambda monitor, cfg: FakeCapture(),
+        ocr_func=ocr,
+        fast_translator_factory=lambda cfg: FakeTranslator(),
+    )
+    t0 = time.monotonic()
+    pipe.start(_monitor())
+    try:
+        assert _wait_until(lambda: len(call_times) >= 1, timeout_s=2.0)
+    finally:
+        pipe.stop()
+
+    elapsed = call_times[0] - t0
+    assert elapsed >= 0.25, f"profile_selector was called too early ({elapsed:.2f}s), delay was not honored"
+
+
 def test_max_ocr_fps_throttles_the_capture_loop(store):
     """spec section 9 (eco mode): a configured max_ocr_fps caps the loop
     rate. 0 (the default) must stay uncapped."""

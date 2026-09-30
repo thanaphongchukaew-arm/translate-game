@@ -265,6 +265,26 @@ class Pipeline:
     # ------------------------------------------------------------------ ocr
 
     def _ocr_loop(self, monitor) -> None:
+        # Real-world race, found from a real user report ("กระตุก" / slow
+        # translations that traced back to always landing on the
+        # full-screen `generic` profile despite profiles/p5x.json's match
+        # rules being correct): profile selection reads the CURRENT
+        # foreground window, but this thread starts the instant start()
+        # is called -- whether that's autostart firing on app launch, a
+        # hotkey, or clicking the start button, the user's own app window
+        # (or whatever launched it) is still focused at that exact
+        # instant, not the game they're about to switch to. Profile is
+        # only ever picked once per pipeline start, so getting it wrong
+        # here means full-screen scanning for the entire session. Give
+        # the user a short window to alt-tab to the game first.
+        # Default 0 here (not the shipped config.default.json value of 2.5)
+        # so tests that construct Pipeline with a raw inline cfg dict --
+        # nearly all of them -- stay fast and deterministic without
+        # needing to remember to set this key; real runs always go
+        # through load_config(), which merges in the real 2.5s default.
+        delay_s = float(self.cfg.get("regions", {}).get("profile_select_delay_s", 0) or 0)
+        if delay_s > 0:
+            self._stop_event.wait(delay_s)
         try:
             profile = self._profile_selector(self.cfg)
         except Exception as exc:  # noqa: BLE001 - profile selection must not block startup
