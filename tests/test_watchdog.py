@@ -123,6 +123,7 @@ def test_pipeline_reports_heartbeats_for_both_threads():
         on_frame=lambda f: None,
         on_status=lambda s: None,
         store=make_store(tmp),
+        profile_selector=lambda cfg: None,
         capture_factory=lambda monitor, cfg: FakeCapture(),
         ocr_func=lambda frame, cfg: [OcrLine(x1=0, y1=0, x2=10, y2=10, text="Hi", score=0.9)],
         fast_translator_factory=lambda cfg: FakeTranslator(),

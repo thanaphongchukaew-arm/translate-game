@@ -143,3 +143,44 @@ def register_hotkey(hwnd: int, hotkey_id: int, modifiers: int, vk: int) -> bool:
 
 def unregister_hotkey(hwnd: int, hotkey_id: int) -> bool:
     return bool(user32.UnregisterHotKey(wintypes.HWND(hwnd), hotkey_id))
+
+
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+
+def get_foreground_window_info() -> tuple[str, str]:
+    """Returns (process_name, window_title) of the current foreground
+    window, e.g. ("PhantomX.exe", "Persona 5: The Phantom X") -- used for
+    automatic profile selection (spec section 3E/3B). Returns ("", "") if
+    it can't be determined (no crash either way)."""
+    try:
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return "", ""
+
+        length = user32.GetWindowTextLengthW(hwnd)
+        buf = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buf, length + 1)
+        title = buf.value
+
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if not pid.value:
+            return "", title
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+        if not handle:
+            return "", title
+        try:
+            name_buf = ctypes.create_unicode_buffer(260)
+            size = wintypes.DWORD(260)
+            kernel32.QueryFullProcessImageNameW(handle, 0, name_buf, ctypes.byref(size))
+            full_path = name_buf.value
+            process_name = full_path.rsplit("\\", 1)[-1] if full_path else ""
+            return process_name, title
+        finally:
+            kernel32.CloseHandle(handle)
+    except OSError as exc:
+        logger.warning("platform_win: get_foreground_window_info failed (%s)", exc)
+        return "", ""

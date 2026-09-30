@@ -93,6 +93,7 @@ def test_pipeline_produces_frames_with_translated_blocks(store):
         on_frame=frames.append,
         on_status=lambda s: None,
         store=store,
+        profile_selector=lambda cfg: None,
         capture_factory=lambda monitor, cfg: FakeCapture(),
         ocr_func=ocr,
         fast_translator_factory=lambda cfg: translator,
@@ -120,6 +121,7 @@ def test_pipeline_stop_joins_within_budget(store):
         on_frame=lambda f: None,
         on_status=lambda s: None,
         store=store,
+        profile_selector=lambda cfg: None,
         capture_factory=lambda monitor, cfg: FakeCapture(),
         ocr_func=ocr,
         fast_translator_factory=lambda cfg: FakeTranslator(),
@@ -142,6 +144,7 @@ def test_override_is_used_without_calling_translator(store):
         on_frame=frames.append,
         on_status=lambda s: None,
         store=store,
+        profile_selector=lambda cfg: None,
         capture_factory=lambda monitor, cfg: FakeCapture(),
         ocr_func=ocr,
         fast_translator_factory=lambda cfg: translator,
@@ -166,6 +169,7 @@ def test_duplicate_text_across_frames_is_translated_once(store):
         on_frame=frames.append,
         on_status=lambda s: None,
         store=store,
+        profile_selector=lambda cfg: None,
         capture_factory=lambda monitor, cfg: FakeCapture(),
         ocr_func=ocr,
         fast_translator_factory=lambda cfg: translator,
@@ -192,6 +196,7 @@ def test_bad_translation_falls_back_to_original_text_and_stops_retrying(store):
         on_frame=frames.append,
         on_status=lambda s: None,
         store=store,
+        profile_selector=lambda cfg: None,
         capture_factory=lambda monitor, cfg: FakeCapture(),
         ocr_func=ocr,
         fast_translator_factory=lambda cfg: translator,
@@ -220,6 +225,7 @@ def test_pure_number_text_skips_translation_entirely(store):
         on_frame=frames.append,
         on_status=lambda s: None,
         store=store,
+        profile_selector=lambda cfg: None,
         capture_factory=lambda monitor, cfg: FakeCapture(),
         ocr_func=ocr,
         fast_translator_factory=lambda cfg: translator,
@@ -242,6 +248,7 @@ def test_snapshot_returns_latest_frame(store):
         on_frame=lambda f: None,
         on_status=lambda s: None,
         store=store,
+        profile_selector=lambda cfg: None,
         capture_factory=lambda monitor, cfg: FakeCapture(),
         ocr_func=ocr,
         fast_translator_factory=lambda cfg: FakeTranslator(),
@@ -254,6 +261,142 @@ def test_snapshot_returns_latest_frame(store):
         pipe.stop()
 
 
+def _profile_with_region(name="dialogue_box", rect=(0.0, 0.7, 1.0, 1.0), preset="dialogue"):
+    from gametrans.profiles import Profile
+    from gametrans.regions import Region
+
+    return Profile(
+        id="test-profile", display_name="Test", match_process=None, match_window_title=None,
+        risk_level="low", source_lang="en",
+        regions=(Region(name=name, rect=rect, preset=preset),),
+        glossary_path=None, capture_target_type="auto", display_mode_default="auto", notes="",
+    )
+
+
+def test_region_based_capture_crops_and_offsets_coordinates(store):
+    """OCR lines detected inside a region crop must come back with
+    coordinates in FULL-FRAME space (region pixel offset added), not
+    crop-relative -- otherwise the overlay would draw in the wrong place."""
+    profile = _profile_with_region(rect=(0.0, 0.5, 1.0, 1.0))  # bottom half of an 800x600 frame -> offset_y=300
+
+    captured_regions = []
+
+    def fake_ocr(crop_or_frame, cfg):
+        # record what the OCR function actually received (should be the
+        # CROPPED region, not the full frame) and return a line at a fixed
+        # position relative to that crop.
+        captured_regions.append(crop_or_frame)
+        return [OcrLine(x1=10, y1=10, x2=100, y2=30, text="Hello", score=0.9)]
+
+    frames = []
+    pipe = Pipeline(
+        cfg={"fast": {}, "cache": {}, "text": {}},
+        on_frame=frames.append,
+        on_status=lambda s: None,
+        store=store,
+        profile_selector=lambda cfg: profile,
+        capture_factory=lambda monitor, cfg: FakeCapture(),
+        ocr_func=fake_ocr,
+        fast_translator_factory=lambda cfg: FakeTranslator(),
+    )
+    # FakeCapture.grab returns a plain object(), not a real numpy frame --
+    # crop_frame() needs a real array with .shape, so use a real one here.
+    import numpy as np
+
+    class NumpyCapture:
+        def grab(self, l, t, w, h):
+            return np.zeros((600, 800, 3), dtype="uint8")
+
+        def close(self):
+            pass
+
+    pipe._capture_factory = lambda monitor, cfg: NumpyCapture()
+
+    pipe.start(_monitor())
+    try:
+        assert _wait_until(lambda: len(frames) >= 1 and frames[-1].blocks)
+    finally:
+        pipe.stop()
+
+    block = frames[-1].blocks[0].block
+    # region top-left in pixels is (0, 300); OCR reported (10,10) relative
+    # to the crop, so full-frame coordinates must be (10, 310).
+    assert block.y1 == 310.0
+    assert block.x1 == 10.0
+
+
+def test_region_based_capture_tracks_each_region_independently(store):
+    """Two regions with the same text at different positions must not be
+    matched against each other's tracking history."""
+    from gametrans.profiles import Profile
+    from gametrans.regions import Region
+
+    profile = Profile(
+        id="two-region", display_name="Two", match_process=None, match_window_title=None,
+        risk_level="low", source_lang="en",
+        regions=(
+            Region(name="top", rect=(0.0, 0.0, 1.0, 0.5), preset="hud"),
+            Region(name="bottom", rect=(0.0, 0.5, 1.0, 1.0), preset="dialogue"),
+        ),
+        glossary_path=None, capture_target_type="auto", display_mode_default="auto", notes="",
+    )
+
+    import numpy as np
+
+    class NumpyCapture:
+        def grab(self, l, t, w, h):
+            return np.zeros((600, 800, 3), dtype="uint8")
+
+        def close(self):
+            pass
+
+    def fake_ocr(crop, cfg):
+        return [OcrLine(x1=5, y1=5, x2=50, y2=25, text="Same", score=0.9)]
+
+    frames = []
+    pipe = Pipeline(
+        cfg={"fast": {}, "cache": {}, "text": {}},
+        on_frame=frames.append,
+        on_status=lambda s: None,
+        store=store,
+        profile_selector=lambda cfg: profile,
+        capture_factory=lambda monitor, cfg: NumpyCapture(),
+        ocr_func=fake_ocr,
+        fast_translator_factory=lambda cfg: FakeTranslator(),
+    )
+    pipe.start(_monitor())
+    try:
+        assert _wait_until(lambda: len(frames) >= 1 and len(frames[-1].blocks) == 2)
+    finally:
+        pipe.stop()
+
+    ys = sorted(b.block.y1 for b in frames[-1].blocks)
+    assert ys == [5.0, 305.0]  # top region's block stays near y=5, bottom region's near y=305
+
+
+def test_no_regions_falls_back_to_full_screen_scan(store):
+    """profile_selector returning a profile with no regions (or None)
+    must behave exactly like the pre-regions generic full-screen path."""
+    ocr = FakeOcr([OcrLine(x1=0, y1=0, x2=100, y2=20, text="Hello", score=0.9)])
+    frames = []
+    pipe = Pipeline(
+        cfg={"fast": {}, "cache": {}, "text": {}},
+        on_frame=frames.append,
+        on_status=lambda s: None,
+        store=store,
+        profile_selector=lambda cfg: None,
+        capture_factory=lambda monitor, cfg: FakeCapture(),
+        ocr_func=ocr,
+        fast_translator_factory=lambda cfg: FakeTranslator(),
+    )
+    pipe.start(_monitor())
+    try:
+        assert _wait_until(lambda: len(frames) >= 1 and frames[-1].blocks)
+    finally:
+        pipe.stop()
+    assert frames[-1].blocks[0].block.text == "Hello"
+
+
 def test_capture_backend_failure_does_not_crash_process(store):
     def failing_factory(monitor, cfg):
         raise RuntimeError("no capture backend available")
@@ -263,6 +406,7 @@ def test_capture_backend_failure_does_not_crash_process(store):
         on_frame=lambda f: None,
         on_status=lambda s: None,
         store=store,
+        profile_selector=lambda cfg: None,
         capture_factory=failing_factory,
         ocr_func=FakeOcr([]),
         fast_translator_factory=lambda cfg: FakeTranslator(),

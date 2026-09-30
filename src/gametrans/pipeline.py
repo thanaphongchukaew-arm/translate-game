@@ -24,6 +24,7 @@ from typing import Any, Callable, Optional
 
 from gametrans.layout import Block, OcrLine, merge_lines, track_blocks
 from gametrans.ocr_post import clean_text
+from gametrans.regions import Region, crop_frame, rect_to_pixels
 from gametrans.store import Store
 from gametrans.textprep import prepare
 from gametrans.guards import check_translation
@@ -74,6 +75,26 @@ def _default_ocr_func(frame, cfg: dict) -> list[OcrLine]:
     return run_ocr(frame, cfg)
 
 
+def _default_profile_selector(cfg: dict):
+    """Picks the active profile per spec section 3E: a specific configured
+    id wins outright; "auto" (the default) matches the current foreground
+    window's process/title against each profile's `match` rules, falling
+    back to the always-available `generic` (zero-config, full-screen)
+    profile."""
+    from gametrans.platform_win import get_foreground_window_info
+    from gametrans.profiles import load_all_profiles, select_profile
+
+    regions_cfg = cfg.get("regions", {})
+    profiles_map = load_all_profiles(regions_cfg.get("profile_dir", "profiles"))
+    configured = regions_cfg.get("active_profile", "auto")
+    if configured != "auto" and configured in profiles_map:
+        return profiles_map[configured]
+
+    process_name, window_title = get_foreground_window_info()
+    profile_id = select_profile(profiles_map, process_name, window_title)
+    return profiles_map[profile_id]
+
+
 def _default_translator_factory(cfg: dict):
     from gametrans.translate_fast import NllbCTranslator
 
@@ -99,6 +120,7 @@ class Pipeline:
         capture_factory: Callable = _default_capture_factory,
         ocr_func: Callable = _default_ocr_func,
         fast_translator_factory: Callable = _default_translator_factory,
+        profile_selector: Callable = _default_profile_selector,
         refine_translator: Optional[Any] = None,
         watchdog: Optional[Any] = None,
     ) -> None:
@@ -124,8 +146,10 @@ class Pipeline:
         self._capture_factory = capture_factory
         self._ocr_func = ocr_func
         self._fast_translator_factory = fast_translator_factory
+        self._profile_selector = profile_selector
         self._refine_translator = refine_translator
         self._watchdog = watchdog
+        self.active_profile = None  # set once _capture_ocr_loop selects it; readable for UI/status
 
         self._threads: list[threading.Thread] = []
         self._stop_event = threading.Event()
@@ -167,8 +191,28 @@ class Pipeline:
             logger.error("pipeline: capture backend failed to start: %s", exc)
             return
 
+        try:
+            profile = self._profile_selector(self.cfg)
+        except Exception as exc:  # noqa: BLE001 - profile selection must not block startup
+            logger.warning("pipeline: profile selection failed (%s) -- using no regions (generic)", exc)
+            profile = None
+        self.active_profile = profile
+        regions = list(getattr(profile, "regions", ()) or ())
+        if regions:
+            logger.info("pipeline: profile %r active with %d region(s)", profile.id, len(regions))
+        else:
+            logger.info("pipeline: no regions -- scanning full screen (generic)")
+
         glossary = self.store.get_glossary()
+        # generic (no regions): a single block-tracking history for the
+        # whole frame. With regions: one independent history per region
+        # (each region's blocks are tracked separately so text in one
+        # region never gets matched against a differently-positioned
+        # region's text).
         prev_blocks: list[Block] = []
+        region_prev_blocks: dict[str, list[Block]] = {r.name: [] for r in regions}
+        region_cfgs = {r.name: self._build_region_cfg(r) for r in regions}
+
         try:
             while not self._stop_event.is_set():
                 if self._watchdog is not None:
@@ -179,38 +223,46 @@ class Pipeline:
                     self._stop_event.wait(0.01)
                     continue
 
+                now = time.monotonic()
                 try:
-                    lines = self._ocr_func(frame, self.cfg)
+                    if regions:
+                        all_blocks: list[Block] = []
+                        for region in regions:
+                            px = rect_to_pixels(region.rect, monitor.width, monitor.height)
+                            offset_x, offset_y = px[0], px[1]
+                            crop = crop_frame(frame, region.rect)
+                            region_cfg = region_cfgs[region.name]
+                            lines = self._ocr_func(crop, region_cfg)
+                            offset_lines = [
+                                OcrLine(
+                                    x1=ln.x1 + offset_x, y1=ln.y1 + offset_y,
+                                    x2=ln.x2 + offset_x, y2=ln.y2 + offset_y,
+                                    text=clean_text(ln.text), score=ln.score,
+                                )
+                                for ln in lines
+                            ]
+                            cur = merge_lines(offset_lines, region_cfg)
+                            region_prev_blocks[region.name] = track_blocks(
+                                region_prev_blocks[region.name], cur, now, region_cfg
+                            )
+                            all_blocks.extend(region_prev_blocks[region.name])
+                        cur_blocks = all_blocks
+                    else:
+                        lines = self._ocr_func(frame, self.cfg)
+                        cleaned = [
+                            OcrLine(x1=ln.x1, y1=ln.y1, x2=ln.x2, y2=ln.y2, text=clean_text(ln.text), score=ln.score)
+                            for ln in lines
+                        ]
+                        cur_merged = merge_lines(cleaned, self.cfg)
+                        prev_blocks = track_blocks(prev_blocks, cur_merged, now, self.cfg)
+                        cur_blocks = prev_blocks
                 except Exception as exc:  # noqa: BLE001 - one bad frame must not kill the loop
                     logger.warning("pipeline: OCR failed on a frame (%s)", exc)
                     self._stop_event.wait(0.05)
                     continue
                 ocr_ms = (time.perf_counter() - t0) * 1000
 
-                cleaned = [
-                    OcrLine(x1=ln.x1, y1=ln.y1, x2=ln.x2, y2=ln.y2, text=clean_text(ln.text), score=ln.score)
-                    for ln in lines
-                ]
-                cur_blocks = merge_lines(cleaned, self.cfg)
-                now = time.monotonic()
-                prev_blocks = track_blocks(prev_blocks, cur_blocks, now, self.cfg)
-
-                translated: list[TranslatedBlock] = []
-                for block in prev_blocks:
-                    entry = self.store.lookup(block.text)
-                    if entry is not None:
-                        translated.append(TranslatedBlock(block=block, thai=entry.thai, final=entry.final))
-                        continue
-
-                    prepared = prepare(block.text, glossary)
-                    if prepared.skip:
-                        # nothing translatable (pure numbers/symbols) -- show as-is, no queueing
-                        self.store.put(block.text, block.text, tier=0, final=True)
-                        translated.append(TranslatedBlock(block=block, thai=block.text, final=True))
-                        continue
-
-                    self._enqueue_translation(block.text)
-                    translated.append(TranslatedBlock(block=block, thai=block.text, final=False))
+                translated = self._translate_blocks(cur_blocks, glossary)
 
                 self._frame_counter += 1
                 result = FrameResult(
@@ -224,9 +276,47 @@ class Pipeline:
                 with self._frame_lock:
                     self._latest_frame = result
                 self.on_frame(result)
-                self.on_status(StatusUpdate(ocr_ms=ocr_ms, translate_ms=0.0, block_count=len(prev_blocks), active_tier="1"))
+                self.on_status(StatusUpdate(ocr_ms=ocr_ms, translate_ms=0.0, block_count=len(cur_blocks), active_tier="1"))
         finally:
             backend.close()
+
+    def _build_region_cfg(self, region: Region) -> dict:
+        """A per-region cfg copy with the region's preset's layout
+        overrides applied (spec section 1A/8.9) -- e.g. a `dialogue`
+        region gets stable_ms_for_refine=500/context_lines=3, `subtitle`
+        gets stable_ms_for_refine=250, etc. OCR min_score can also be
+        overridden per region (Region.min_score)."""
+        import copy as _copy
+
+        from gametrans.presets import load_preset
+
+        preset = load_preset(region.preset, self.cfg.get("regions", {}).get("preset_dir", "presets"))
+        cfg = _copy.deepcopy(self.cfg)
+        layout_cfg = cfg.setdefault("layout", {})
+        layout_cfg["stable_ms_for_refine"] = preset.get("stable_ms_for_refine", layout_cfg.get("stable_ms_for_refine", 500))
+        layout_cfg["context_lines"] = preset.get("context_lines", layout_cfg.get("context_lines", 3))
+        if region.min_score is not None:
+            cfg.setdefault("ocr", {})["min_score"] = region.min_score
+        return cfg
+
+    def _translate_blocks(self, blocks: list[Block], glossary: dict) -> list[TranslatedBlock]:
+        translated: list[TranslatedBlock] = []
+        for block in blocks:
+            entry = self.store.lookup(block.text)
+            if entry is not None:
+                translated.append(TranslatedBlock(block=block, thai=entry.thai, final=entry.final))
+                continue
+
+            prepared = prepare(block.text, glossary)
+            if prepared.skip:
+                # nothing translatable (pure numbers/symbols) -- show as-is, no queueing
+                self.store.put(block.text, block.text, tier=0, final=True)
+                translated.append(TranslatedBlock(block=block, thai=block.text, final=True))
+                continue
+
+            self._enqueue_translation(block.text)
+            translated.append(TranslatedBlock(block=block, thai=block.text, final=False))
+        return translated
 
     # ------------------------------------------------------- fast-translate
 
@@ -270,16 +360,20 @@ class Pipeline:
                 raw_outputs = None
 
             for i, t in enumerate(batch):
+                # Write the store result BEFORE clearing `_pending` for this
+                # text. If cleared first, the capture/OCR thread could look
+                # this text up between the two steps, miss (not in store
+                # yet) and not-pending (already cleared), and re-enqueue a
+                # duplicate translate call for text already in flight.
+                if raw_outputs is not None:
+                    restored = prepared_list[i].restore(raw_outputs[i])
+                    result = check_translation(t, restored)
+                    if result.ok:
+                        self.store.put(t, restored, tier=1, final=False)
+                    else:
+                        logger.debug("pipeline: guard rejected tier-1 output for %r (%s)", t, result.reason)
+                        # store the original text as a final fallback so we
+                        # stop retrying every frame (spec 8.6: never show junk)
+                        self.store.put(t, t, tier=0, final=True)
                 with self._pending_lock:
                     self._pending.discard(t)
-                if raw_outputs is None:
-                    continue
-                restored = prepared_list[i].restore(raw_outputs[i])
-                result = check_translation(t, restored)
-                if result.ok:
-                    self.store.put(t, restored, tier=1, final=False)
-                else:
-                    logger.debug("pipeline: guard rejected tier-1 output for %r (%s)", t, result.reason)
-                    # store the original text as a final fallback so we stop
-                    # retrying every frame (spec section 8.6: never show junk)
-                    self.store.put(t, t, tier=0, final=True)

@@ -9,6 +9,7 @@ overrides.json
 overrides.json.bak
 translation_cache.json
 translation_cache.json.bak
+glossary.json.bak
 gametrans.log
 gametrans.log.*
 app_stdout.log

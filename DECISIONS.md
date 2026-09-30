@@ -223,3 +223,20 @@ Prompt ต้นแบบจากหัวข้อ 12 ของสเปกม
 5. ทดสอบด้วยโปรไฟล์ P5X จริง (ยังใช้ภาพประมาณการอยู่ ไม่มีภาพจริง)
 
 **เฟส 5B: ทำบางส่วน ⏳** (จอสอง/watchdog/tray/autostart เสร็จและทดสอบแล้ว, region editor/wizard/WGC ยังไม่ได้ทำ)
+
+## เฟส 5B (ต่อ) — เชื่อม region/profile เข้า pipeline จริง (2026-09-30)
+
+โมดูล: อัปเดต `pipeline.py` (crop ต่อ region, เลือกโปรไฟล์อัตโนมัติ), เพิ่ม `platform_win.get_foreground_window_info()`
+
+### สถาปัตยกรรม
+`Pipeline` เลือกโปรไฟล์ตอนเริ่ม (ครั้งเดียวต่อการ start ไม่ใช่ทุกเฟรม) ผ่าน `profile_selector(cfg)` ที่ inject ได้ (เทสใช้ fake, โค้ดจริงใช้ `_default_profile_selector` → `platform_win.get_foreground_window_info()` + `profiles.select_profile()`) ถ้าโปรไฟล์มี regions: crop เฉพาะพื้นที่นั้นด้วย `regions.crop_frame()` รัน OCR แยกต่อ region แล้ว**บวกออฟเซ็ตพิกเซลของ region กลับเข้าไปในพิกัดที่ OCR รายงาน** เพื่อให้ตำแหน่งอ้างอิงเทียบกับเฟรมเต็มเสมอ (overlay ใช้พิกัดนี้ตรงๆ) แต่ละ region มี block-tracking history (`prev_blocks`) แยกกัน ไม่ปนกัน และดึงค่า preset ของ region (`stable_ms_for_refine`, `context_lines`) มา override cfg เฉพาะ region นั้น ถ้าโปรไฟล์ไม่มี regions (เช่น generic) พฤติกรรมเดิมสแกนเต็มจอไม่เปลี่ยน
+
+### บั๊กจริงที่เจอ (สำคัญ — race condition จริง ไม่ใช่แค่ทฤษฎี)
+เทส `test_duplicate_text_across_frames_is_translated_once` ล้มเหลวแบบสุ่ม (บางรันได้ 1 บางรันได้ 2) หลัง refactor — สืบไปเจอว่า `_fast_translate_loop` เดิมเรียก `self._pending.discard(t)` **ก่อน** `self.store.put(...)` เปิดช่องให้ thread capture+OCR (ซึ่งวนเร็วมาก วัดได้หลักหมื่นรอบ/วินาทีในสภาพแวดล้อมทดสอบ) เข้ามา `lookup()` ข้อความเดียวกันได้พอดีในช่วงที่ยัง**ไม่อยู่ใน store** (put ยังไม่เสร็จ) **และไม่อยู่ใน pending แล้ว** (discard ไปแล้ว) ทำให้คิวข้อความซ้ำถูกส่งแปลซ้ำ แก้โดยสลับลำดับ: เขียน store ก่อน แล้วค่อย discard จาก pending set เป็นขั้นตอนสุดท้าย รันเทสซ้ำ 5 ครั้งติดกันยืนยันว่าไม่แฟลกอีก (บั๊กนี้มีอยู่ตั้งแต่เฟส 5 แล้ว แค่ยังไม่เคยโดนจับได้เพราะไม่มีเทสที่นับจำนวนครั้งที่เรียก translate แม่นระดับนี้มาก่อน)
+
+### ทดสอบจริง (ไม่ใช่แค่ fake)
+รันจริงบนเครื่อง (จับภาพจอจริง, OCR จริง, เลือกโปรไฟล์จริง) 4 วินาที: เลือกโปรไฟล์ `generic` ถูกต้อง (ไม่มีเกม P5X รันอยู่ ไม่ตรง regex ของ `profiles/p5x.json`) จับได้ 7 เฟรม ตรวจพบเมนู VS Code จริง (`File`, `Edit`, `Selection`, `Terminal`, `Help`) ยืนยันว่า OCR + auto-profile-selection ทำงานจริงร่วมกันได้ครบวงจร (คำแปลยังไม่ทันขึ้นเพราะเวลาทดสอบสั้นไปที่โมเดลต้องโหลดก่อน)
+
+เทสใหม่ที่ครอบคลุมเฉพาะ: `test_region_based_capture_crops_and_offsets_coordinates` (ยืนยันคณิตศาสตร์ออฟเซ็ตพิกัดถูกต้อง — จุดที่พลาดบ่อยที่สุดตามหัวข้อ 8.8), `test_region_based_capture_tracks_each_region_independently` (ข้อความเดียวกันในสอง region ไม่ปนกัน), `test_no_regions_falls_back_to_full_screen_scan`
+
+**เฟส 5B (ส่วน region/profile): ผ่าน ✅** — เหลือ `ui_region_editor.py`, `profile_wizard.py`, WGC ตามที่บันทึกไว้ข้างบน
