@@ -16,7 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 PySide6 = pytest.importorskip("PySide6")
 
-from PySide6 import QtWidgets  # noqa: E402
+from PySide6 import QtCore, QtWidgets  # noqa: E402
 
 from gametrans.layout import Block
 from gametrans.pipeline import FrameResult, TranslatedBlock
@@ -36,6 +36,59 @@ def _monitor():
 
 def _block(text="Hello"):
     return Block(id=0, x1=10, y1=10, x2=200, y2=40, text=text, line_h=20.0, first_seen=0.0, last_seen=0.0, stable_cycles=1, stable_since=0.0)
+
+
+def test_fit_font_and_rect_short_text_keeps_starting_size(qapp):
+    from gametrans.overlay import fit_font_and_rect
+
+    cache = {}
+    base_rect = QtCore.QRectF(0, 0, 300, 30)
+    font_px, rect = fit_font_and_rect(cache, 1, "Hi", base_rect, "Arial", 11)
+    assert font_px == int(30 * 0.85)
+    assert rect.height() == base_rect.height()  # fits fine, no growth needed
+
+
+def test_fit_font_and_rect_long_text_shrinks_font_before_growing_box(qapp):
+    from gametrans.overlay import fit_font_and_rect
+
+    cache = {}
+    base_rect = QtCore.QRectF(0, 0, 80, 25)  # narrow box, short original English text
+    long_thai = "สวัสดีครับนักเดินทาง ป่าแห่งนี้จดจำทุกสิ่ง"
+    font_px, rect = fit_font_and_rect(cache, 1, long_thai, base_rect, "Arial", 11)
+    start_px = int(base_rect.height() * 0.85)
+    assert font_px <= start_px  # shrunk from the starting size
+
+
+def test_fit_font_and_rect_grows_box_when_min_font_still_does_not_fit(qapp):
+    from gametrans.overlay import fit_font_and_rect
+
+    cache = {}
+    # A 1px-tall box can't fit ANY font size's text -- deterministic
+    # regardless of font-substitution differences across environments
+    # (offscreen platform may not have "Arial" and falls back to
+    # whatever's available, which shifts exact metrics slightly).
+    base_rect = QtCore.QRectF(0, 0, 40, 1)
+    very_long_thai = "ข้อความยาวมากที่ต้องใช้พื้นที่มากกว่ากล่องเดิมมากจนไม่สามารถพอดีได้เลยแม้แต่ที่ขนาดเล็กสุด"
+    font_px, rect = fit_font_and_rect(cache, 1, very_long_thai, base_rect, "Arial", 11)
+    assert font_px == 11  # hit the floor
+    assert rect.height() > base_rect.height()  # grew instead of clipping
+    assert rect.width() == base_rect.width()  # width never changes, only height
+
+
+def test_fit_font_and_rect_caches_by_block_id_and_text(qapp):
+    from gametrans.overlay import fit_font_and_rect
+
+    cache = {}
+    base_rect = QtCore.QRectF(0, 0, 100, 30)
+    result1 = fit_font_and_rect(cache, 1, "สวัสดี", base_rect, "Arial", 11)
+    assert 1 in cache
+    # same id, same text -> cache hit, returns identical result object values
+    result2 = fit_font_and_rect(cache, 1, "สวัสดี", base_rect, "Arial", 11)
+    assert result1 == result2
+
+    # same id, DIFFERENT text -> cache must be invalidated / recomputed
+    result3 = fit_font_and_rect(cache, 1, "สวัสดีครับทุกคน", base_rect, "Arial", 11)
+    assert cache[1][0] == "สวัสดีครับทุกคน"
 
 
 def test_overlay_window_constructs_and_shows(qapp):

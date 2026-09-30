@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from gametrans.overlay import fit_font_and_rect
 from gametrans.pipeline import FrameResult, Pipeline
 from gametrans.platform_win import MonitorInfo, exclude_from_capture
 
@@ -56,6 +57,8 @@ class MirrorWindow(QtWidgets.QWidget):
         interval_ms = max(1, int(1000 / max(mirror_fps, 1)))
         self._timer.start(interval_ms)
 
+        self._fit_cache: dict[int, tuple[str, int, QtCore.QRectF]] = {}
+
     def showEvent(self, event: QtGui.QShowEvent) -> None:  # noqa: N802 - Qt override
         super().showEvent(event)
         exclude_from_capture(int(self.winId()))
@@ -100,12 +103,16 @@ class MirrorWindow(QtWidgets.QWidget):
             sy = scaled.height() / max(frame.capture_height, 1)
             for tb in frame.blocks:
                 b = tb.block
-                rect = QtCore.QRectF(
+                base_rect = QtCore.QRectF(
                     x_off + b.x1 * sx, y_off + b.y1 * sy,
                     max((b.x2 - b.x1) * sx, 1.0), max((b.y2 - b.y1) * sy, 1.0),
                 )
+                # Same fit-then-grow logic as OverlayWindow (mode A) --
+                # without it, Thai text longer than the original English
+                # silently gets clipped by Qt instead of shown in full.
+                font_px, rect = fit_font_and_rect(self._fit_cache, b.id, tb.thai, base_rect, "Leelawadee UI", 11)
                 font = QtGui.QFont("Leelawadee UI")
-                font.setPixelSize(max(int((b.y2 - b.y1) * sy * 0.85), 11))
+                font.setPixelSize(font_px)
                 painter.setFont(font)
                 painter.setPen(QtGui.QColor(255, 255, 255))
                 painter.drawText(rect, QtCore.Qt.AlignCenter | QtCore.Qt.TextWordWrap, tb.thai)
