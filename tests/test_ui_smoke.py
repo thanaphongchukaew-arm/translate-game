@@ -364,7 +364,6 @@ def test_main_window_watchdog_restarts_stalled_pipeline(qapp, tmp_path, monkeypa
 
         def __init__(self, cfg, on_frame, on_status, watchdog=None, **kwargs):
             self.started_with = None
-            self.enable_raw_capture = False
             FakePipeline.instances.append(self)
 
         def start(self, monitor):
@@ -383,8 +382,8 @@ def test_main_window_watchdog_restarts_stalled_pipeline(qapp, tmp_path, monkeypa
     assert isinstance(win._pipeline, FakePipeline)
     old_pipeline = win._pipeline
 
-    # force the watchdog to believe capture_ocr stalled a long time ago
-    win._watchdog.heartbeat("capture_ocr", now=0.0)
+    # force the watchdog to believe the capture thread stalled a long time ago
+    win._watchdog.heartbeat("capture", now=0.0)
     import time as _time
     monkeypatch.setattr(_time, "monotonic", lambda: 100.0)
 

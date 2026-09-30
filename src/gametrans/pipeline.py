@@ -1,10 +1,25 @@
 """Ties capture -> OCR -> layout -> tier 0/1(/2) translation -> store
 together across the threads described in spec section 10:
 
-  1. capture+ocr thread (single thread: OCR is the bottleneck and always
-     wants "the latest frame", never a queue of stale ones)
-  2. fast-translate thread (tier 1, batches, writes non-final store entries)
-  3. refine thread (tier 2, optional -- only runs if a refine_translator is
+  1. capture thread: the ONLY thread that ever calls backend.grab(). Owns
+     the one dxcam duplicator instance for this monitor and grabs
+     continuously, publishing the latest frame for both the OCR thread and
+     MirrorWindow (mode B) to read. This split exists because dxcam's
+     duplicator is a single shared object per monitor -- a second thread
+     creating its own "independent" dxcam instance for the same monitor
+     actually gets handed the SAME underlying instance, and concurrent
+     grab() calls against it are unsafe (reproduced directly: one thread
+     succeeded while the other crashed with a real COMError). A real user
+     asked for the mirror to reach 60fps; the previous design used a
+     second thread with mss (safe to run concurrently, but ~18ms/call,
+     capping around 55fps) specifically to avoid this hazard. Routing ALL
+     capture through one dedicated dxcam-owning thread instead gets both:
+     safety and the ~0.1ms/grab speed needed to actually hit 60fps.
+  2. ocr thread: never grabs frames itself -- reads whatever the capture
+     thread published most recently ("the latest frame", never a queue of
+     stale ones) and runs OCR+layout+translate-lookup on it.
+  3. fast-translate thread (tier 1, batches, writes non-final store entries)
+  4. refine thread (tier 2, optional -- only runs if a refine_translator is
      given; not exercised with a real LLM in this project, see DECISIONS.md
      phase 4)
 
@@ -69,20 +84,6 @@ def _default_capture_factory(monitor, cfg: dict):
     return create_backend(backend_name, monitor_index=monitor.index)
 
 
-def _default_raw_capture_factory(monitor, cfg: dict):
-    """Backend for the dedicated raw-frame thread (mirror background),
-    deliberately forced to "mss" rather than reusing the OCR loop's dxcam
-    instance: dxcam's duplicator is effectively a single shared object per
-    monitor (create() returns the existing instance if called twice), and
-    concurrent grab() calls against it from two threads at once is not a
-    combination this project has verified as safe. mss creates its own
-    independent capture resources per instance, and at ~11ms/grab
-    (measured in phase 2) is still fast enough for 30+ fps."""
-    from gametrans.capture import create_backend
-
-    return create_backend("mss", monitor_index=monitor.index)
-
-
 def _default_ocr_func(frame, cfg: dict) -> list[OcrLine]:
     from gametrans.ocr import run_ocr
 
@@ -132,7 +133,6 @@ class Pipeline:
         *,
         store: Optional[Store] = None,
         capture_factory: Callable = _default_capture_factory,
-        raw_capture_factory: Callable = _default_raw_capture_factory,
         ocr_func: Callable = _default_ocr_func,
         fast_translator_factory: Callable = _default_translator_factory,
         profile_selector: Callable = _default_profile_selector,
@@ -159,13 +159,12 @@ class Pipeline:
             self.store.load()
 
         self._capture_factory = capture_factory
-        self._raw_capture_factory = raw_capture_factory
         self._ocr_func = ocr_func
         self._fast_translator_factory = fast_translator_factory
         self._profile_selector = profile_selector
         self._refine_translator = refine_translator
         self._watchdog = watchdog
-        self.active_profile = None  # set once _capture_ocr_loop selects it; readable for UI/status
+        self.active_profile = None  # set once _ocr_loop selects it; readable for UI/status
 
         self._threads: list[threading.Thread] = []
         self._stop_event = threading.Event()
@@ -177,34 +176,30 @@ class Pipeline:
         self._latest_frame: Optional[FrameResult] = None
         self._frame_counter = 0
 
-        # Fed by a DEDICATED thread (_raw_capture_loop), independent of
-        # the OCR loop's own grab() -- OCR takes ~400-600ms for a
-        # full-screen scan, so a mirror window that only redraws when a
-        # new FrameResult arrives is capped at OCR's pace (~1-2fps), not
-        # a real video-mirror frame rate, no matter how fast its own
-        # repaint timer runs (this was tried first: publishing the raw
-        # frame earlier within each OCR loop iteration, but the
-        # iteration rate itself is still OCR-bound, so it didn't actually
-        # reach 30fps -- a real user asked for "30fps+" on the mirror
-        # screen and a genuinely separate capture loop was needed).
-        # MirrorWindow pulls this at full capture speed while overlaying
-        # the last-known OCR'd text blocks on top -- slightly stale text
-        # position is an acceptable trade-off for a game UI that's static
-        # while a dialogue box is shown, smooth video isn't.
+        # Published by the dedicated _capture_loop thread on every grab,
+        # independent of the OCR loop's own (much slower) pace -- OCR takes
+        # ~400-600ms for a full-screen scan, so a mirror window that only
+        # redraws when a new FrameResult arrives is capped at OCR's pace
+        # (~1-2fps), not a real video-mirror frame rate, no matter how fast
+        # its own repaint timer runs. MirrorWindow pulls this at full
+        # capture speed while overlaying the last-known OCR'd text blocks
+        # on top -- slightly stale text position is an acceptable
+        # trade-off for a game UI that's static while a dialogue box is
+        # shown, smooth video isn't. The OCR loop also reads from here
+        # instead of grabbing itself (see module docstring for why: one
+        # dxcam instance per monitor, shared, unsafe to grab from two
+        # threads at once).
         self._raw_frame_lock = threading.Lock()
         self._latest_raw_frame: Any = None
-        self.enable_raw_capture = False  # ui_main.py turns this on only for mode B
 
     # ------------------------------------------------------------- control
 
     def start(self, monitor) -> None:
         self._stop_event.clear()
-        t1 = threading.Thread(target=self._capture_ocr_loop, args=(monitor,), name="capture-ocr", daemon=True)
-        t2 = threading.Thread(target=self._fast_translate_loop, name="fast-translate", daemon=True)
-        self._threads = [t1, t2]
-        if self.enable_raw_capture:
-            t3 = threading.Thread(target=self._raw_capture_loop, args=(monitor,), name="raw-capture", daemon=True)
-            self._threads.append(t3)
+        t_capture = threading.Thread(target=self._capture_loop, args=(monitor,), name="capture", daemon=True)
+        t_ocr = threading.Thread(target=self._ocr_loop, args=(monitor,), name="ocr", daemon=True)
+        t_translate = threading.Thread(target=self._fast_translate_loop, name="fast-translate", daemon=True)
+        self._threads = [t_capture, t_ocr, t_translate]
         for t in self._threads:
             t.start()
 
@@ -227,15 +222,49 @@ class Pipeline:
         with self._raw_frame_lock:
             return self._latest_raw_frame
 
-    # --------------------------------------------------------- capture+ocr
+    # ------------------------------------------------------------- capture
 
-    def _capture_ocr_loop(self, monitor) -> None:
+    def _capture_loop(self, monitor) -> None:
+        """The ONLY thread that ever calls backend.grab(). See the module
+        docstring for why this had to become a single dedicated thread
+        rather than one dxcam instance per consumer."""
         try:
             backend = self._capture_factory(monitor, self.cfg)
         except Exception as exc:  # noqa: BLE001 - report, thread must exit cleanly
             logger.error("pipeline: capture backend failed to start: %s", exc)
             return
 
+        target_fps = float(self.cfg.get("display", {}).get("mirror_fps", 60) or 60)
+        min_interval_s = 1.0 / max(target_fps, 1.0)
+        last_loop_start = 0.0
+
+        try:
+            while not self._stop_event.is_set():
+                elapsed = time.monotonic() - last_loop_start
+                if elapsed < min_interval_s:
+                    # time.sleep(), not self._stop_event.wait(): measured on
+                    # real hardware to be meaningfully more precise for
+                    # sub-17ms waits on this system (Event.wait()'s
+                    # condition-variable path added enough overhead to cap
+                    # this loop around ~53-56fps against a 60fps target;
+                    # time.sleep() reached ~59fps). Costs up to one extra
+                    # sleep-length of stop() latency, negligible against the
+                    # 3s stop() budget.
+                    time.sleep(min_interval_s - elapsed)
+                last_loop_start = time.monotonic()
+
+                if self._watchdog is not None:
+                    self._watchdog.heartbeat("capture")
+                frame = backend.grab(monitor.left, monitor.top, monitor.width, monitor.height)
+                if frame is not None:
+                    with self._raw_frame_lock:
+                        self._latest_raw_frame = frame
+        finally:
+            backend.close()
+
+    # ------------------------------------------------------------------ ocr
+
+    def _ocr_loop(self, monitor) -> None:
         try:
             profile = self._profile_selector(self.cfg)
         except Exception as exc:  # noqa: BLE001 - profile selection must not block startup
@@ -269,114 +298,75 @@ class Pipeline:
             self._set_low_priority()
         last_loop_start = 0.0
 
-        try:
-            while not self._stop_event.is_set():
-                if min_interval_s > 0:
-                    elapsed = time.monotonic() - last_loop_start
-                    if elapsed < min_interval_s:
-                        self._stop_event.wait(min_interval_s - elapsed)
-                last_loop_start = time.monotonic()
-
-                if self._watchdog is not None:
-                    self._watchdog.heartbeat("capture_ocr")
-                t0 = time.perf_counter()
-                frame = backend.grab(monitor.left, monitor.top, monitor.width, monitor.height)
-                if frame is None:
-                    self._stop_event.wait(0.01)
-                    continue
-
-                with self._raw_frame_lock:
-                    self._latest_raw_frame = frame
-
-                now = time.monotonic()
-                try:
-                    if regions:
-                        all_blocks: list[Block] = []
-                        for region in regions:
-                            px = rect_to_pixels(region.rect, monitor.width, monitor.height)
-                            offset_x, offset_y = px[0], px[1]
-                            crop = crop_frame(frame, region.rect)
-                            region_cfg = region_cfgs[region.name]
-                            lines = self._ocr_func(crop, region_cfg)
-                            offset_lines = [
-                                OcrLine(
-                                    x1=ln.x1 + offset_x, y1=ln.y1 + offset_y,
-                                    x2=ln.x2 + offset_x, y2=ln.y2 + offset_y,
-                                    text=clean_text(ln.text), score=ln.score,
-                                )
-                                for ln in lines
-                            ]
-                            cur = merge_lines(offset_lines, region_cfg)
-                            region_prev_blocks[region.name] = track_blocks(
-                                region_prev_blocks[region.name], cur, now, region_cfg
-                            )
-                            all_blocks.extend(region_prev_blocks[region.name])
-                        cur_blocks = all_blocks
-                    else:
-                        lines = self._ocr_func(frame, self.cfg)
-                        cleaned = [
-                            OcrLine(x1=ln.x1, y1=ln.y1, x2=ln.x2, y2=ln.y2, text=clean_text(ln.text), score=ln.score)
-                            for ln in lines
-                        ]
-                        cur_merged = merge_lines(cleaned, self.cfg)
-                        prev_blocks = track_blocks(prev_blocks, cur_merged, now, self.cfg)
-                        cur_blocks = prev_blocks
-                except Exception as exc:  # noqa: BLE001 - one bad frame must not kill the loop
-                    logger.warning("pipeline: OCR failed on a frame (%s)", exc)
-                    self._stop_event.wait(0.05)
-                    continue
-                ocr_ms = (time.perf_counter() - t0) * 1000
-
-                translated = self._translate_blocks(cur_blocks, glossary)
-
-                self._frame_counter += 1
-                result = FrameResult(
-                    frame_id=self._frame_counter,
-                    blocks=tuple(translated),
-                    capture_width=monitor.width,
-                    capture_height=monitor.height,
-                    ocr_ms=ocr_ms,
-                    frame_image=frame,
-                )
-                with self._frame_lock:
-                    self._latest_frame = result
-                self.on_frame(result)
-                self.on_status(StatusUpdate(ocr_ms=ocr_ms, translate_ms=0.0, block_count=len(cur_blocks), active_tier="1"))
-        finally:
-            backend.close()
-
-    def _raw_capture_loop(self, monitor) -> None:
-        """Dedicated thread for mode B's mirror background: grabs frames
-        as fast as the backend allows (mss, ~11ms/grab measured in phase
-        2 -- easily >30fps), entirely independent of the OCR loop's much
-        slower iteration rate. See the comment in __init__ for why this
-        needed to be a genuinely separate thread rather than just
-        publishing earlier within the existing OCR loop."""
-        try:
-            backend = self._raw_capture_factory(monitor, self.cfg)
-        except Exception as exc:  # noqa: BLE001 - report, thread must exit cleanly
-            logger.error("pipeline: raw capture (mirror) backend failed to start: %s", exc)
-            return
-
-        target_fps = float(self.cfg.get("display", {}).get("mirror_fps", 60) or 60)
-        min_interval_s = 1.0 / max(target_fps, 1.0)
-        last_loop_start = 0.0
-
-        try:
-            while not self._stop_event.is_set():
+        while not self._stop_event.is_set():
+            if min_interval_s > 0:
                 elapsed = time.monotonic() - last_loop_start
                 if elapsed < min_interval_s:
                     self._stop_event.wait(min_interval_s - elapsed)
-                last_loop_start = time.monotonic()
+            last_loop_start = time.monotonic()
 
-                if self._watchdog is not None:
-                    self._watchdog.heartbeat("raw_capture")
-                frame = backend.grab(monitor.left, monitor.top, monitor.width, monitor.height)
-                if frame is not None:
-                    with self._raw_frame_lock:
-                        self._latest_raw_frame = frame
-        finally:
-            backend.close()
+            if self._watchdog is not None:
+                self._watchdog.heartbeat("ocr")
+            frame = self.snapshot_raw_frame()
+            if frame is None:
+                self._stop_event.wait(0.01)
+                continue
+            t0 = time.perf_counter()
+
+            now = time.monotonic()
+            try:
+                if regions:
+                    all_blocks: list[Block] = []
+                    for region in regions:
+                        px = rect_to_pixels(region.rect, monitor.width, monitor.height)
+                        offset_x, offset_y = px[0], px[1]
+                        crop = crop_frame(frame, region.rect)
+                        region_cfg = region_cfgs[region.name]
+                        lines = self._ocr_func(crop, region_cfg)
+                        offset_lines = [
+                            OcrLine(
+                                x1=ln.x1 + offset_x, y1=ln.y1 + offset_y,
+                                x2=ln.x2 + offset_x, y2=ln.y2 + offset_y,
+                                text=clean_text(ln.text), score=ln.score,
+                            )
+                            for ln in lines
+                        ]
+                        cur = merge_lines(offset_lines, region_cfg)
+                        region_prev_blocks[region.name] = track_blocks(
+                            region_prev_blocks[region.name], cur, now, region_cfg
+                        )
+                        all_blocks.extend(region_prev_blocks[region.name])
+                    cur_blocks = all_blocks
+                else:
+                    lines = self._ocr_func(frame, self.cfg)
+                    cleaned = [
+                        OcrLine(x1=ln.x1, y1=ln.y1, x2=ln.x2, y2=ln.y2, text=clean_text(ln.text), score=ln.score)
+                        for ln in lines
+                    ]
+                    cur_merged = merge_lines(cleaned, self.cfg)
+                    prev_blocks = track_blocks(prev_blocks, cur_merged, now, self.cfg)
+                    cur_blocks = prev_blocks
+            except Exception as exc:  # noqa: BLE001 - one bad frame must not kill the loop
+                logger.warning("pipeline: OCR failed on a frame (%s)", exc)
+                self._stop_event.wait(0.05)
+                continue
+            ocr_ms = (time.perf_counter() - t0) * 1000
+
+            translated = self._translate_blocks(cur_blocks, glossary)
+
+            self._frame_counter += 1
+            result = FrameResult(
+                frame_id=self._frame_counter,
+                blocks=tuple(translated),
+                capture_width=monitor.width,
+                capture_height=monitor.height,
+                ocr_ms=ocr_ms,
+                frame_image=frame,
+            )
+            with self._frame_lock:
+                self._latest_frame = result
+            self.on_frame(result)
+            self.on_status(StatusUpdate(ocr_ms=ocr_ms, translate_ms=0.0, block_count=len(cur_blocks), active_tier="1"))
 
     def _set_low_priority(self) -> None:
         try:

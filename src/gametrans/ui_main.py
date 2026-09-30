@@ -269,7 +269,6 @@ class MainWindow(QtWidgets.QWidget):
         )
         if mode == "B" and isinstance(self._output_window, MirrorWindow):
             self._output_window.attach_pipeline(self._pipeline)
-            self._pipeline.enable_raw_capture = True  # dedicated fast thread for a smooth mirror background
         self._active_capture_monitor = capture_monitor
         self._pipeline.start(capture_monitor)
 
@@ -296,7 +295,7 @@ class MainWindow(QtWidgets.QWidget):
         "ไม่มีหน้าต่างเด้งขัดจังหวะ")."""
         if self._pipeline is None or self._active_capture_monitor is None:
             return
-        watched = ("capture_ocr", "fast_translate", "raw_capture") if self._pipeline.enable_raw_capture else ("capture_ocr", "fast_translate")
+        watched = ("capture", "ocr", "fast_translate")
         for name in watched:
             if self._watchdog.should_restart(name):
                 logger.warning("ui_main: watchdog restarting pipeline (stalled component: %s)", name)
@@ -311,7 +310,6 @@ class MainWindow(QtWidgets.QWidget):
                 )
                 if was_mirror:
                     self._output_window.attach_pipeline(self._pipeline)
-                    self._pipeline.enable_raw_capture = True
                 self._pipeline.start(monitor)
                 self._watchdog.restarted(name)
                 self.status_label.setText(f"รีสตาร์ทอัตโนมัติ ({name} ค้าง)")

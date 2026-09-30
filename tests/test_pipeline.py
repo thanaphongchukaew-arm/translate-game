@@ -261,17 +261,16 @@ def test_snapshot_returns_latest_frame(store):
         pipe.stop()
 
 
-def test_raw_capture_thread_updates_much_faster_than_ocr_results(store):
-    """Regression test for a real user request ("อยากให้หน้าจอแปล เป็น
-    30fps+"): with a slow OCR function (simulating a real ~400-600ms
-    full-screen scan), the dedicated raw-capture thread (enable_raw_capture)
-    must keep grabbing frames at its own pace, not get stuck waiting for
-    each slow OCR cycle -- proving MirrorWindow can redraw a fresh
-    background at full capture speed instead of being capped at OCR's
-    pace. A first version of this fix just published the raw frame
-    earlier within the existing (still OCR-paced) loop iteration, which
-    this test would correctly have failed -- the fix needed a genuinely
-    separate thread, which is what's being verified here."""
+def test_capture_thread_updates_much_faster_than_slow_ocr(store):
+    """Regression test for two real user requests: the mirror background
+    must run independently of a slow OCR pass ("อยากให้หน้าจอแปล เป็น
+    30fps+"), and later actually reach a high frame rate ("อยากให้เป็น 60
+    fps") rather than being capped by a slow per-grab backend. The single
+    dedicated capture thread (the only thread that ever calls
+    backend.grab() -- see pipeline.py's module docstring for why two
+    concurrent dxcam instances on one monitor is unsafe) must keep
+    grabbing at its own pace regardless of how slow OCR is, since the OCR
+    loop now reads snapshot_raw_frame() instead of grabbing itself."""
 
     class SlowOcr:
         def __call__(self, frame, cfg):
@@ -289,38 +288,32 @@ def test_raw_capture_thread_updates_much_faster_than_ocr_results(store):
         def close(self):
             pass
 
-    ocr_side_capture = CountingCapture()
-    raw_capture = CountingCapture()
+    capture = CountingCapture()
     pipe = Pipeline(
-        cfg={"fast": {}, "cache": {}, "text": {}, "display": {"mirror_fps": 30}},
+        cfg={"fast": {}, "cache": {}, "text": {}, "display": {"mirror_fps": 60}},
         on_frame=lambda f: None,
         on_status=lambda s: None,
         store=store,
         profile_selector=lambda cfg: None,
-        capture_factory=lambda monitor, cfg: ocr_side_capture,
-        raw_capture_factory=lambda monitor, cfg: raw_capture,
+        capture_factory=lambda monitor, cfg: capture,
         ocr_func=SlowOcr(),
         fast_translator_factory=lambda cfg: FakeTranslator(),
     )
-    pipe.enable_raw_capture = True
     pipe.start(_monitor())
     try:
         assert _wait_until(lambda: pipe.snapshot_raw_frame() is not None)
-        raw_count_at_start = raw_capture.grab_count
-        ocr_count_at_start = ocr_side_capture.grab_count
+        count_at_start = capture.grab_count
         time.sleep(0.5)
-        raw_count_after = raw_capture.grab_count
-        ocr_count_after = ocr_side_capture.grab_count
+        count_after = capture.grab_count
     finally:
         pipe.stop()
 
-    raw_grabs = raw_count_after - raw_count_at_start
-    ocr_grabs = ocr_count_after - ocr_count_at_start
-    # at 30fps target the raw thread should manage close to ~15 grabs in
-    # 0.5s (generous lower bound to avoid timing flakiness); the OCR loop,
-    # gated by the 150ms sleep, manages only ~3
-    assert raw_grabs > 10, f"expected the dedicated raw-capture thread to run near 30fps, got {raw_grabs} grabs in 0.5s"
-    assert raw_grabs > ocr_grabs * 2, f"raw capture ({raw_grabs}) should far outpace OCR-gated capture ({ocr_grabs})"
+    grabs = count_after - count_at_start
+    # at a 60fps target the capture thread should manage close to ~30
+    # grabs in 0.5s (generous lower bound to avoid timing flakiness) --
+    # far more than the ~3 the 150ms-sleeping OCR loop would allow if
+    # capture were still gated by it.
+    assert grabs > 15, f"expected the dedicated capture thread to run near 60fps independent of slow OCR, got {grabs} grabs in 0.5s"
 
 
 def _profile_with_region(name="dialogue_box", rect=(0.0, 0.7, 1.0, 1.0), preset="dialogue"):

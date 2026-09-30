@@ -395,3 +395,34 @@ thread นี้เปิดเฉพาะโหมด B (`pipeline.enable_raw_
 **ผลวัดจริง 2 วินาที**: ได้ **~49 fps** (98 ครั้ง/2 วินาที) — ดีขึ้นกว่าฐาน 30fps เดิมมาก แต่**ยังไม่ถึง 60fps เป๊ะ** สาเหตุน่าจะมาจาก overhead อื่นนอกเหนือความเร็ว `mss.grab()` ล้วนๆ (เช่น การล็อก, `time.monotonic()` เช็คซ้ำทุกรอบ, การเรียก watchdog heartbeat) ซึ่งยังไม่ได้ไล่หาจุดคอขวดที่แน่ชัด — บอกผู้ใช้ตรงๆ ตามตัวเลขจริงที่วัดได้ ไม่ปัดขึ้นเป็น 60
 
 **หมายเหตุ**: ตัวเลขนี้วัดเฉพาะ thread จับภาพ (`snapshot_raw_frame()`) เท่านั้น ยังไม่ได้วัด FPS ที่ผู้ใช้เห็นจริงบนจอ (ซึ่งต้องนับรวม overhead ฝั่ง `MirrorWindow.paintEvent()` ด้วย: copy numpy array, คำนวณสีเติมพื้นต่อ block, แปลงเป็น QImage, scale, วาดข้อความ — อาจเป็นคอขวดเพิ่มเติมที่ทำให้ FPS จริงบนจอต่ำกว่า 49 อีก) ยังไม่ได้วัดจุดนี้แยกต่างหาก เป็นงานค้างถ้าต้องการปรับต่อ
+
+## คำขอเพิ่มเติมจากผู้ใช้: "เอาเลยให้ได้ 60 fps" — สถาปัตยกรรมแยก capture thread ออกจาก OCR (2026-09-30)
+
+จากการวัดผลรอบก่อน (~49fps) ได้โปรไฟล์หาสาเหตุจริงและพบสองข้อสรุปสำคัญ:
+
+1. **`mss.grab()` เองคือคอขวด**: วัดแยก 100 ครั้ง ได้ avg=18.21ms/call, p50=17.66ms — เพดานทางทฤษฎีอยู่ที่ ~55fps เท่านั้นไม่ว่าจะปรับโค้ดรอบนอกอย่างไร (ตัด Windows timer granularity ออกแล้วด้วย `timeBeginPeriod(1)` A/B test — ไม่ต่างกันมีนัยสำคัญ)
+2. **ทดสอบตรงๆ ว่าเรียก `dxcam.grab()` พร้อมกันจากสอง thread บนจอเดียวกันปลอดภัยหรือไม่** (ข้อสงสัยที่ทิ้งไว้ตั้งแต่คำขอ 30fps+ ก่อนหน้า): **ไม่ปลอดภัยจริง** — thread A จับภาพสำเร็จ 407 ครั้ง/3วินาที ในขณะที่ thread B ได้ `COMError` จริง ("The application made a call that is invalid...") ยืนยันว่า dxcam's duplicator เป็น instance เดียวที่ใช้ร่วมกันต่อจอ ตามที่สงสัยไว้แต่แรก
+
+### การแก้: รวม capture เป็น thread เดียว ไม่ใช่สอง backend แยกกัน
+ปรับสถาปัตยกรรม threading ของ `pipeline.py` ใหม่ทั้งหมด จากเดิม "capture+ocr thread" (grab+OCR ในลูปเดียว) กับ "raw-capture thread" แยก (ใช้ mss) เปลี่ยนเป็น:
+
+- **`_capture_loop`** (thread ใหม่, เดียวเท่านั้นที่เรียก `backend.grab()`): ใช้ `dxcam` (เร็ว ~0.1-0.2ms/grab) จับภาพต่อเนื่องตามเป้าหมาย `display.mirror_fps` publish ผลลง `_latest_raw_frame` ให้ทั้ง OCR และ `MirrorWindow` อ่านร่วมกัน
+- **`_ocr_loop`** (เดิมชื่อ `_capture_ocr_loop`): ไม่จับภาพเองอีกต่อไป อ่าน frame ล่าสุดผ่าน `snapshot_raw_frame()` แทน — ยังคง throttle ด้วย `capture.max_ocr_fps` (eco mode) เหมือนเดิมทุกประการ ไม่กระทบพฤติกรรมเดิม
+- ลบ `raw_capture_factory`, `_default_raw_capture_factory`, `enable_raw_capture` ออกทั้งหมด — ไม่จำเป็นอีกต่อไปเพราะ capture thread ทำงานเสมอ (ไม่ต้องเปิด/ปิดตามโหมด) โหมด A/C แค่ไม่อ่าน `snapshot_raw_frame()` เฉยๆ ไม่มีต้นทุนเพิ่ม
+- watchdog heartbeat names: `"capture_ocr"`/`"raw_capture"` → `"capture"`/`"ocr"` (อัปเดต `ui_main.py`'s watched tuple ให้ตรงกันด้วย เฝ้าดูทั้งสามเสมอ: `"capture", "ocr", "fast_translate"`)
+
+### ปรับ throttle mechanism เพิ่มเติมหลังวัดพบว่ายังไม่ถึง 60fps
+วัด `_capture_loop` แบบแยก (ไม่มี Pipeline อื่นรบกวน) ด้วย `threading.Event.wait()` (ของเดิม) ได้ ~56.3fps เท่านั้น สงสัยว่า `Event.wait()` มี overhead จาก condition-variable path มากกว่า `time.sleep()` — ทดสอบสลับเป็น `time.sleep()` ตรงๆ **ได้ ~59.0fps ในการทดสอบแยก** ดีขึ้นชัดเจน จึงเปลี่ยน `_capture_loop`'s throttle จาก `self._stop_event.wait(...)` เป็น `time.sleep(...)` (ยอมรับ trade-off: `stop()` อาจช้าลงสูงสุด ~1 ช่วง sleep คือ ~17ms ซึ่งเล็กน้อยมากเทียบกับ budget 3 วินาทีของ `stop()`)
+
+### ผลวัดจริงสุดท้าย (dxcam จริง, จอจริง, ทั้ง Pipeline รันพร้อม OCR/translate thread อื่นแข่งกันจริง)
+- `dxcam.grab()` เดี่ยวๆ: avg=0.169ms, p50=0.039ms — เร็วกว่า mss ประมาณ 100 เท่า
+- `_capture_loop` เดี่ยวๆ (ไม่มี thread อื่นแข่ง): **~59.0 fps** (98% ของเป้า 60fps)
+- **`_capture_loop` ใน Pipeline เต็มรูปแบบ (มี OCR thread จำลองช้า 300ms/รอบ + translate thread ทำงานพร้อมกันจริง)**: **~54.3 fps** — ตัวเลขนี้คือค่าที่ใกล้เคียงสภาพการใช้งานจริงที่สุด ลดลงจาก 59fps เพราะ Python thread-scheduling/GIL overhead เมื่อมีหลาย thread แข่งกันจริง (ลองปรับ `sys.setswitchinterval(0.001)` แล้วไม่ต่างกัน ไม่ใช่สาเหตุหลัก)
+
+**สรุปตรงไปตรงมา**: จาก ~49fps (คอขวดจาก mss) ตอนนี้ได้ ~54fps ในสภาพใช้งานจริง (90% ของเป้า 60fps เป๊ะ) ดีขึ้นอย่างมีนัยสำคัญ แต่**ยังไม่ถึง 60fps เป๊ะ** ส่วนต่างที่เหลือ (~10%) มาจาก Python interpreter/thread-scheduling overhead ล้วนๆ ไม่ใช่ต้นทุนของการจับภาพอีกต่อไป (ลองใช้ busy-spin waiting แทน sleep ได้แค่ ~57.7fps แต่ต้องแลกกับ CPU core ทำงานเต็ม 100% ตลอดเวลา ไม่คุ้มสำหรับแอปพื้นหลังจึงไม่เลือกวิธีนี้)
+
+### เทสที่ปรับ
+เขียนใหม่ `test_raw_capture_thread_updates_much_faster_than_ocr_results` → `test_capture_thread_updates_much_faster_than_slow_ocr` ให้ตรงกับสถาปัตยกรรมใหม่ (capture_factory ตัวเดียว ไม่มี raw_capture_factory แยกแล้ว) ยืนยันว่า capture thread จับภาพได้เร็วกว่า OCR loop ที่ถูกหน่วงด้วย sleep 150ms อย่างมีนัยสำคัญ (>15 ครั้ง/0.5วินาที เทียบกับ OCR ที่ทำได้แค่ ~3 ครั้ง) — **240/240 เทสผ่านหมด**
+
+### สถานะ
+ปรับปรุงจนถึงขีดจำกัดที่สมเหตุสมผลของสถาปัตยกรรมปัจจุบันแล้ว (~54fps จริงในสภาพใช้งานจริง, ~90% ของเป้า 60fps) ส่วนต่างที่เหลือคือ Python-level overhead ที่การแก้ต่อ (เช่น busy-spin) ต้องแลกด้วย CPU core เต็มตลอดเวลา ซึ่งไม่คุ้มสำหรับแอปที่ควรทำงานเบาๆ อยู่เบื้องหลังเกม
