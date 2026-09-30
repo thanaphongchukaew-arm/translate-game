@@ -144,6 +144,59 @@ def test_save_writes_profile_to_disk(qapp, monkeypatch, tmp_path):
     editor.close()
 
 
+def _generic_profile_with_region():
+    from gametrans.profiles import GENERIC_PROFILE
+    from dataclasses import replace
+
+    region = Region(name="dialogue_box", rect=(0.1, 0.7, 0.9, 0.95), preset="dialogue")
+    return replace(GENERIC_PROFILE, regions=(region,))
+
+
+def test_save_while_on_generic_profile_prompts_for_new_id_and_does_not_touch_generic_json(qapp, monkeypatch, tmp_path):
+    """Regression test: GENERIC_PROFILE is the hardcoded, always-available
+    zero-config fallback every unmatched game uses. Saving edited regions
+    under id="generic" would write profiles/generic.json to disk, which
+    load_all_profiles() would then load OVER the hardcoded default on
+    every future run -- corrupting the shared fallback for every other
+    unmatched game. Saving while on the generic profile must detour
+    through a rename prompt instead of silently overwriting it."""
+    import gametrans.ui_region_editor as mod
+    from PySide6.QtGui import QImage
+    from gametrans.profiles import load_profile
+
+    monkeypatch.setattr(mod, "_capture_snapshot", lambda monitor: QImage(100, 100, QImage.Format_RGB32))
+    editor = mod.RegionEditorWindow(_generic_profile_with_region(), _monitor())
+    editor._show_info = lambda title, message: None
+    editor._prompt_new_profile_id = lambda: "my_new_game"
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "profiles").mkdir()
+
+    editor._on_save()
+
+    assert not (tmp_path / "profiles" / "generic.json").exists()
+    reloaded = load_profile(tmp_path / "profiles" / "my_new_game.json")
+    assert reloaded is not None
+    assert reloaded.id == "my_new_game"
+    assert len(reloaded.regions) == 1
+    editor.close()
+
+
+def test_save_while_on_generic_profile_cancelled_does_not_save_anything(qapp, monkeypatch, tmp_path):
+    import gametrans.ui_region_editor as mod
+    from PySide6.QtGui import QImage
+
+    monkeypatch.setattr(mod, "_capture_snapshot", lambda monitor: QImage(100, 100, QImage.Format_RGB32))
+    editor = mod.RegionEditorWindow(_generic_profile_with_region(), _monitor())
+    editor._prompt_new_profile_id = lambda: None  # user cancelled the rename prompt
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "profiles").mkdir()
+
+    editor._on_save()
+
+    assert list((tmp_path / "profiles").glob("*.json")) == []
+    editor.close()
+
+
 def test_invalid_dragged_rect_shows_warning_not_crash(qapp, monkeypatch):
     """A degenerate rect (e.g. dragged entirely outside 0..1 after
     rounding) must be rejected gracefully, not crash the editor."""

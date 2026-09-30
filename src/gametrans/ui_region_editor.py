@@ -176,6 +176,29 @@ class RegionEditorWindow(QtWidgets.QDialog):
         self._refresh_region_list()
         self._redraw()
 
+    def _prompt_new_profile_id(self) -> str | None:
+        """Asks for a new profile id before saving edits made while the
+        `generic` fallback was active. `generic` is special: it's the
+        hardcoded, always-available zero-config profile every unmatched
+        game falls back to (profiles.py's GENERIC_PROFILE) -- but
+        save_profile() would happily write a real profiles/generic.json
+        to disk, and load_all_profiles() loads *that* over the hardcoded
+        default on every future run. Silently saving game-specific
+        regions under id="generic" would corrupt the shared fallback for
+        every other unmatched game, so this is a required detour, not
+        optional."""
+        new_id, ok = QtWidgets.QInputDialog.getText(
+            self,
+            "ตั้งชื่อโปรไฟล์ใหม่",
+            "ยังไม่มีโปรไฟล์เฉพาะเกมนี้ (กำลังแก้ไข region บนโปรไฟล์ทั่วไป \"generic\")\n"
+            "ตั้งรหัสโปรไฟล์ใหม่ก่อนบันทึก (เช่น ชื่อเกมภาษาอังกฤษล้วน ไม่เว้นวรรค)\n"
+            "เพื่อไม่ให้ทับโปรไฟล์ generic ที่เกมอื่นๆ ใช้ร่วมกัน:",
+        )
+        new_id = new_id.strip()
+        if not ok or not new_id or new_id == "generic":
+            return None
+        return new_id
+
     def _prompt_new_region(self) -> tuple[str, str] | None:
         """Asks for a region name + preset. A plain method (not a direct
         static Qt dialog call in the caller) so tests can substitute it
@@ -207,7 +230,14 @@ class RegionEditorWindow(QtWidgets.QDialog):
     def _on_save(self) -> None:
         from dataclasses import replace
 
-        updated = replace(self.profile, regions=tuple(self.regions))
+        target_profile = self.profile
+        if target_profile.id == "generic":
+            new_id = self._prompt_new_profile_id()
+            if new_id is None:
+                return
+            target_profile = replace(target_profile, id=new_id, display_name=new_id)
+
+        updated = replace(target_profile, regions=tuple(self.regions))
         save_profile(updated, profile_dir="profiles")
         self.profile = updated
         self._show_info("บันทึกแล้ว", f"บันทึกโปรไฟล์ {updated.id} แล้ว ({len(self.regions)} region)")
