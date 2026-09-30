@@ -64,9 +64,20 @@ _QUOTE_MAP = str.maketrans({
 
 _HYPHEN_BREAK_RE = re.compile(r"(\w+)-\s+(\w+)")
 
+# The English RapidOCR recognition model occasionally drops the space right
+# after a comma/period/etc when the next character starts a new word (e.g.
+# "here,traveler." instead of "here, traveler."). Unambiguous and safe to
+# always fix — a punctuation mark is never immediately followed by a letter
+# with no space in correctly-written English.
+_MISSING_SPACE_AFTER_PUNCT_RE = re.compile(r"([,!?;])([A-Za-z])")
+
 
 def _normalize_quotes(text: str) -> str:
     return text.translate(_QUOTE_MAP)
+
+
+def _fix_missing_space_after_punctuation(text: str) -> str:
+    return _MISSING_SPACE_AFTER_PUNCT_RE.sub(r"\1 \2", text)
 
 
 def _merge_hyphenation(text: str) -> str:
@@ -131,6 +142,7 @@ def clean_text(text: str) -> str:
 
     text = _normalize_quotes(text)
     text = _merge_hyphenation(text)
+    text = _fix_missing_space_after_punctuation(text)
     text = re.sub(r"[ \t]+", " ", text)
     text = "\n".join(line.strip() for line in text.split("\n")).strip()
 

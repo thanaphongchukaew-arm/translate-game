@@ -1,10 +1,44 @@
-# Phase 1 (this file): no runtime deps beyond the standard library.
-# Later phases add, in order of introduction:
-#   Phase 2  : mss, dxcam, rapidocr-onnxruntime, onnxruntime-gpu, numpy, opencv-python-headless
-#   Phase 3/4: ctranslate2, sentencepiece/tokenizers, sacrebleu, requests
-#   Phase 5  : PySide6
-#   Phase 5B : windows-capture (or winsdk), pywin32
-# Every addition here must be re-checked against section 1 rule 7:
-# no cloud-service SDKs (anthropic, openai, ...) are ever allowed.
+# Exact pinned versions that were actually tested: requirements.lock
+# (generated via `pip freeze` inside .venv). Install with:
+#   pip install -r requirements.lock
+#
+# Phase 1: no deps beyond stdlib + pytest.
+#
+# Phase 2 (capture + OCR) additions — all verified working on this machine
+# (see DECISIONS.md phase 2 for exact findings/caveats):
+#   numpy, pillow                  - array/image handling
+#   mss                            - screen capture fallback (always works)
+#   dxcam                          - fast DXGI Desktop Duplication capture
+#   opencv-python-headless         - image preprocessing (rapidocr also
+#                                     pulls in plain opencv-python as its
+#                                     own declared dependency; both end up
+#                                     registered but only one cv2 build is
+#                                     actually active — harmless, cosmetic)
+#   rapidocr-onnxruntime           - OCR engine
+#   onnxruntime-directml           - ONNX runtime w/ DirectML GPU provider
+#                                     (NOT onnxruntime-gpu/CUDA: this
+#                                     machine's onnxruntime-gpu CUDA
+#                                     provider failed to load even with the
+#                                     pip-packaged CUDA/cuDNN runtime DLLs;
+#                                     DirectML works immediately with just
+#                                     the GPU driver and measured faster.
+#                                     NEVER install onnxruntime /
+#                                     onnxruntime-gpu / onnxruntime-directml
+#                                     together — they conflict on the same
+#                                     `onnxruntime` import name.)
+#
+# Phase 3/4 (translation) will add: ctranslate2, sentencepiece/tokenizers,
+#   sacrebleu, requests
+# Phase 5 (UI) will add: PySide6
+# Phase 5B (window capture, hotkeys beyond ctypes) will add as needed.
+#
+# Rule (section 1.7): no cloud-service SDKs (anthropic, openai, ...) ever.
 
 pytest>=7.4,<9
+numpy
+pillow
+mss
+dxcam
+opencv-python-headless
+rapidocr-onnxruntime
+onnxruntime-directml

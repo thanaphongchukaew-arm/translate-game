@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "file": "ocr/en/en_PP-OCRv3_rec_infer.onnx",
+      "sha256": "EF7ABD8BD3629AE57EA2C28B425C1BD258A871B93FD2FE7C433946ADE9B5D9EA",
+      "source_url": "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv3/en_PP-OCRv3_rec_infer.onnx",
+      "source_project": "PaddleOCR / RapidOCR (SWHL)",
+      "license": "Apache-2.0 (PaddleOCR models)",
+      "purpose": "English text recognition (rec) — replaces the bundled 'ch' (Chinese) rec model, which drops spaces between English words on multi-word sentences. Used with the bundled ch_PP-OCRv4_det_infer.onnx detector (script-agnostic, unaffected).",
+      "downloaded": "2026-09-30"
+    }
+  ]
+}

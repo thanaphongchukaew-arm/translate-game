@@ -49,3 +49,11 @@ def test_empty_string_is_safe():
 
 def test_already_clean_word_is_unchanged():
     assert fix_confusables("hello") == "hello"
+
+
+def test_inserts_missing_space_after_comma():
+    assert clean_text("here,traveler.") == "here, traveler."
+
+
+def test_does_not_insert_space_in_decimal_numbers():
+    assert clean_text("Price: 3.14 gold") == "Price: 3.14 gold"

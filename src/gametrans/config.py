@@ -20,7 +20,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "run_in_tray": True,
     "capture": {"backend": "auto", "max_ocr_fps": 0, "diff_threshold": 0},
     "capture_target": {"type": "auto", "window_title": ""},
-    "ocr": {"provider": "auto", "min_score": 0.6, "min_box_h": 8, "max_blocks": 60, "upscale_small_text": True},
+    "ocr": {
+        "provider": "auto",
+        "min_score": 0.6,
+        "min_box_h": 8,
+        "max_blocks": 60,
+        "upscale_small_text": True,
+        "rec_model_path": "models/ocr/en/en_PP-OCRv3_rec_infer.onnx",
+    },
     "layout": {"hold_cycles": 2, "stable_cycles_for_refine": 2, "stable_ms_for_refine": 500, "context_lines": 3},
     "fast": {"model_dir": "models/fast", "beam_size": 1, "max_batch": 16, "device": "auto"},
     "refine": {

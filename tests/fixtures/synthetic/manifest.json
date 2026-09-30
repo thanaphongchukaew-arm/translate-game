@@ -1,0 +1,85 @@
+[
+  {
+    "file": "01_white_on_black_sizes.png",
+    "expected_text": [
+      "Small text sample",
+      "Medium text sample",
+      "Large Text"
+    ],
+    "category": "font_size"
+  },
+  {
+    "file": "02_shadow_gradient.png",
+    "expected_text": [
+      "Subtitle with shadow"
+    ],
+    "category": "subtitle_shadow"
+  },
+  {
+    "file": "03_dialogue_box.png",
+    "expected_text": [
+      "Aldric",
+      "You shouldn't have come here, traveler.",
+      "The forest remembers everything.",
+      "Turn back while you still can."
+    ],
+    "category": "dialogue"
+  },
+  {
+    "file": "04_menu_two_columns.png",
+    "expected_text": [
+      "Start Game",
+      "Continue",
+      "Options",
+      "Inventory",
+      "Save",
+      "Quit",
+      "Map",
+      "Party",
+      "Skills",
+      "Items",
+      "Status",
+      "Help"
+    ],
+    "category": "menu"
+  },
+  {
+    "file": "05_hud_numbers.png",
+    "expected_text": [
+      "HP 120/200",
+      "MP 40/60"
+    ],
+    "category": "hud"
+  },
+  {
+    "file": "06_noisy_background.png",
+    "expected_text": [
+      "Readable Text"
+    ],
+    "category": "noisy"
+  },
+  {
+    "file": "07_empty.png",
+    "expected_text": [],
+    "category": "empty"
+  },
+  {
+    "file": "08_black.png",
+    "expected_text": [],
+    "category": "black_frame"
+  },
+  {
+    "file": "09_tiny_font.png",
+    "expected_text": [
+      "Tiny caption text"
+    ],
+    "category": "tiny_font"
+  },
+  {
+    "file": "10_confusable_chars.png",
+    "expected_text": [
+      "World Hello 100"
+    ],
+    "category": "confusable"
+  }
+]
