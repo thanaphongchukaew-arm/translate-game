@@ -1,6 +1,9 @@
 import json
+from pathlib import Path
 
 from gametrans.config import DEFAULT_CONFIG, merge_config, load_config
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_missing_keys_fall_back_to_default():
@@ -70,3 +73,42 @@ def test_load_config_merges_valid_user_file(tmp_path):
     assert cfg["mode"] == "fastest"
     assert cfg["cache"]["max_entries"] == 500
     assert cfg["cache"]["path"] == DEFAULT_CONFIG["cache"]["path"]
+
+
+def test_real_config_default_json_fast_model_dir_points_to_an_existing_tokenizer():
+    """Regression test for a real deployment bug: config.default.json's
+    fast.model_dir was "models/fast" instead of
+    "models/fast/nllb200-600m-int8" -- every real run (loaded through
+    load_config(), the path app.py actually uses) silently picked up the
+    wrong path and every single tier-1 translate() call failed forever,
+    reported by a user as "no Thai translation appears, and severe lag."
+    No prior test caught this because every other test/tool built its cfg
+    dict inline without setting fast.model_dir, so they all fell through
+    to pipeline.py's own correct hardcoded default and never touched the
+    real config.default.json file at all. This test loads the REAL file
+    the app loads, the way app.py actually loads it."""
+    cfg = load_config(
+        user_path=_PROJECT_ROOT / "config.user.json",  # usually absent -- load_config handles that
+        default_path=_PROJECT_ROOT / "config.default.json",
+    )
+    model_dir_str = cfg["fast"]["model_dir"]
+
+    # Cheap, always-runnable guard: this exact wrong value is what broke
+    # translation for real, so a direct regression check on it never
+    # depends on whether the (gitignored, ~620MB) model happens to be
+    # downloaded on the machine running the test.
+    assert model_dir_str != "models/fast", "fast.model_dir regressed to the bug's exact wrong value"
+
+    model_dir = Path(model_dir_str)
+    if not model_dir.is_absolute():
+        model_dir = _PROJECT_ROOT / model_dir
+    if not model_dir.exists():
+        import pytest
+
+        pytest.skip(f"model not downloaded at {model_dir} -- run scripts/download_models.ps1 to fully verify this")
+
+    tokenizer_path = model_dir / "tokenizer" / "sentencepiece.bpe.model"
+    assert tokenizer_path.exists(), (
+        f"config.default.json's fast.model_dir ({model_dir_str}) does not contain a "
+        f"tokenizer at the expected path ({tokenizer_path}) -- every real translate() call would fail"
+    )

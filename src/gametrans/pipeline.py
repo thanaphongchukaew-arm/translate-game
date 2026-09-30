@@ -362,6 +362,15 @@ class Pipeline:
         max_batch = int(self.cfg.get("fast", {}).get("max_batch", 16))
         glossary = self.store.get_glossary()
 
+        # Circuit breaker: a real deployment bug (wrong model_dir in
+        # config.default.json, found via a real user report -- every
+        # translate() call failed with FileNotFoundError) caused this loop
+        # to retry every batch every ~50-200ms forever with zero backoff,
+        # burning CPU on a problem that clearly wasn't going to fix itself.
+        # After a few consecutive failures, back off exponentially instead
+        # of hammering a persistently broken translator.
+        consecutive_failures = 0
+
         while not self._stop_event.is_set():
             if self._watchdog is not None:
                 self._watchdog.heartbeat("fast_translate")
@@ -397,9 +406,21 @@ class Pipeline:
             prepared_list = [prepare(t, glossary) for t in batch]
             try:
                 raw_outputs = translator.translate([p.text for p in prepared_list])
+                consecutive_failures = 0
             except Exception as exc:  # noqa: BLE001 - one failed batch must not kill the loop
-                logger.warning("pipeline: tier-1 translate failed for a batch (%s)", exc)
+                consecutive_failures += 1
+                if consecutive_failures <= 3:
+                    logger.warning("pipeline: tier-1 translate failed for a batch (%s)", exc)
+                elif consecutive_failures == 4:
+                    logger.error(
+                        "pipeline: tier-1 translate has failed %d times in a row (%s) -- "
+                        "backing off instead of retrying every batch",
+                        consecutive_failures, exc,
+                    )
                 raw_outputs = None
+                if consecutive_failures > 3:
+                    backoff_s = min(2.0 * (consecutive_failures - 3), 30.0)
+                    self._stop_event.wait(backoff_s)
 
             for i, t in enumerate(batch):
                 # Write the store result BEFORE clearing `_pending` for this

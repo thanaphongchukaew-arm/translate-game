@@ -439,6 +439,43 @@ def test_max_ocr_fps_zero_stays_uncapped(store):
     assert ocr.call_count > 500, "uncapped loop should run far faster than a 20fps cap would allow"
 
 
+def test_persistent_translate_failure_backs_off_instead_of_hammering(store):
+    """Regression test for a real bug: a wrong model_dir in
+    config.default.json made every real translate() call fail, and the
+    loop retried every batch with zero backoff -- hundreds of failures
+    per second, visible as severe lag in a real user report. This proves
+    the circuit breaker actually engages."""
+
+    class AlwaysFailingTranslator:
+        def __init__(self):
+            self.call_count = 0
+
+        def translate(self, texts, context=()):
+            self.call_count += 1
+            raise RuntimeError("model file not found")
+
+    ocr = FakeOcr([OcrLine(x1=0, y1=0, x2=100, y2=20, text="Hello", score=0.9)])
+    translator = AlwaysFailingTranslator()
+    pipe = Pipeline(
+        cfg={"fast": {}, "cache": {}, "text": {}},
+        on_frame=lambda f: None,
+        on_status=lambda s: None,
+        store=store,
+        profile_selector=lambda cfg: None,
+        capture_factory=lambda monitor, cfg: FakeCapture(),
+        ocr_func=ocr,
+        fast_translator_factory=lambda cfg: translator,
+    )
+    pipe.start(_monitor())
+    time.sleep(1.5)
+    pipe.stop()
+
+    # without backoff this would be in the thousands (queue.get(timeout=0.05)
+    # alone allows ~20/s minimum, but batching from an uncapped OCR loop
+    # pushes it far higher); with the circuit breaker it should be small.
+    assert translator.call_count < 50, f"expected backoff to sharply limit retries, got {translator.call_count} calls in 1.5s"
+
+
 def test_capture_backend_failure_does_not_crash_process(store):
     def failing_factory(monitor, cfg):
         raise RuntimeError("no capture backend available")

@@ -142,6 +142,17 @@ def test_open_region_editor_uses_generic_profile_when_pipeline_not_running(qapp,
     import gametrans.ui_main as ui_main_mod
     monkeypatch.setattr(ui_main_mod, "enumerate_monitors", lambda: [_monitor_stub(0, True)])
 
+    # _open_region_editor's no-pipeline-running fallback calls the REAL
+    # _default_profile_selector, which reads the actual foreground window
+    # via platform_win.get_foreground_window_info() and matches it against
+    # every profile in profiles/ -- including the real p5x.json, whose
+    # match_window_title regex ("Persona 5.*Phantom X|P5X") is short
+    # enough that it can coincidentally match whatever window happens to
+    # be focused on the machine running this test. Mock it so the test is
+    # deterministic regardless of what's on screen.
+    import gametrans.pipeline as pipeline_mod
+    monkeypatch.setattr(pipeline_mod, "_default_profile_selector", lambda cfg: None)
+
     cfg = _two_monitor_cfg(tmp_path)
     win = MainWindow(cfg)
     win.monitor_combo.setCurrentIndex(0)
