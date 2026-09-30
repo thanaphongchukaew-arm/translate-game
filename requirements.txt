@@ -1,0 +1,10 @@
+# Phase 1 (this file): no runtime deps beyond the standard library.
+# Later phases add, in order of introduction:
+#   Phase 2  : mss, dxcam, rapidocr-onnxruntime, onnxruntime-gpu, numpy, opencv-python-headless
+#   Phase 3/4: ctranslate2, sentencepiece/tokenizers, sacrebleu, requests
+#   Phase 5  : PySide6
+#   Phase 5B : windows-capture (or winsdk), pywin32
+# Every addition here must be re-checked against section 1 rule 7:
+# no cloud-service SDKs (anthropic, openai, ...) are ever allowed.
+
+pytest>=7.4,<9

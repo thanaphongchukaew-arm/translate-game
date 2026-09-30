@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "entries": {
+    "Potion": "ยา",
+    "Start Game": "เริ่มเกม",
+    "Continue": "ดำเนินการต่อ",
+    "Options": "ตั้งค่า",
+    "Save and Quit": "บันทึกและออก",
+    "Inventory": "กระเป๋าไอเทม",
+    "Are you sure?": "แน่ใจหรือไม่?",
+    "Tap to continue": "แตะเพื่อดำเนินการต่อ",
+    "Skip": "ข้าม",
+    "Auto": "อัตโนมัติ",
+    "Claim All": "รับทั้งหมด",
+    "Insufficient resources": "ทรัพยากรไม่เพียงพอ"
+  }
+}

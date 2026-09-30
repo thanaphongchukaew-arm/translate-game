@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# runtime user data / generated artifacts — not source
+config.user.json
+overrides.json
+overrides.json.bak
+translation_cache.json
+translation_cache.json.bak
+gametrans.log
+gametrans.log.*
+
+# models are downloaded locally, never committed
+models/*
+!models/MANIFEST.json
+!models/.gitkeep
+
+# game screenshots may be copyrighted — never committed
+tests/fixtures/p5x/*
+!tests/fixtures/p5x/.gitkeep
