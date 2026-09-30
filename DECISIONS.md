@@ -196,3 +196,30 @@ Prompt ต้นแบบจากหัวข้อ 12 ของสเปกม
 6. แก้คำแปลใน manager แล้วจำถาวร — ✅ ยืนยันจริงด้วยเทส `test_manager_dialog_save_override_from_selected_row` (เขียนลง Store จริง, กลไก atomic write จากเฟส 1)
 
 **เฟส 5: ผ่านบางส่วน ⚠️** (โค้ด+เทสอัตโนมัติครบ, ยืนยันภาพจริงบนจอได้แค่บางส่วนผ่านผู้ใช้ — ยังไม่ครบทุกข้อ)
+
+## เฟส 5B (บางส่วน) — จอสอง, watchdog, tray/hotkey/autostart (2026-09-30)
+
+โมดูล: `ui_second_screen.py` (โหมด B mirror + โหมด C panel), `watchdog.py`, `tray.py`, อัปเดต `pipeline.py` (`FrameResult.frame_image`, watchdog heartbeat), อัปเดต `ui_main.py` (เลือกโหมด A/B/C, output monitor, watchdog auto-restart, tray, global hotkey, autostart)
+
+**เลือกทำส่วนนี้ก่อน** เพราะตรงกับการตั้งค่าจริงของผู้ใช้ (จอ 1 เล่นเกม / จอ 2 แสดงคำแปล = โหมด B ค่าเริ่มต้น) ส่วน `ui_region_editor.py`, `profile_wizard.py`, WGC (`capture_target=window`) **ยังไม่ได้ทำ** — บันทึกไว้เป็นงานค้างด้านล่าง
+
+### จุดสำคัญที่ตรวจสอบจริง
+- **โหมด B (mirror)**: `FrameResult` ตอนนี้พก `frame_image` (numpy array อ้างอิง ไม่ copy ตามหัวข้อ 3A) แล้ว เทสยืนยันจริงว่า **ไม่แก้ไข array ต้นฉบับที่แชร์กัน** (`test_mirror_window_does_not_mutate_the_shared_frame_image`) — ถ้าไม่ copy ก่อนวาดทับ จะไปทำลายข้อมูลที่ thread OCR อาจยังอ่านอยู่
+- **การเติมสีพื้นที่ข้อความเดิม**: ใช้สีมัธยฐานของพิกเซลรอบกล่อง (ไม่ใช่กล่องดำทึบ) ตามหัวข้อ 3A ทดสอบด้วย unit test ตรงๆ (ป้อนภาพสีเดียวสม่ำเสมอ ยืนยันได้สีตรงกลับมา)
+- **มิเรอร์ดึงข้อมูลผ่าน QTimer ของตัวเอง (`mirror_fps`) ไม่ผูกกับสัญญาณ on_frame ของ OCR loop** ตามหัวข้อ 3A ("ต้องไม่ทำให้ OCR loop ช้าลง")
+- **โหมด C (panel)**: กันข้อความซ้ำด้วย `(block.id, text)` — ข้อความเดิมที่ OCR อ่านซ้ำเฟรมเดิมไม่ถูกเพิ่มซ้ำ แต่ข้อความที่เปลี่ยน (เช่น typewriter พิมพ์ต่อ) จะถูกเพิ่มเป็นรายการใหม่ถูกต้อง (ทดสอบแล้ว)
+- **watchdog**: ผูกเข้ากับ pipeline จริง (ไม่ใช่แค่โมดูลลอยๆ) — `Pipeline` เรียก `watchdog.heartbeat()` จริงจาก thread capture+ocr และ fast-translate ทุกรอบ ทดสอบด้วย fake pipeline จริงว่า heartbeat มาไม่ขาด และทดสอบ `ui_main._check_watchdog()` ว่า restart pipeline จริงเมื่อ mock เวลาให้ดูเหมือนค้าง
+- **tray + autostart**: ปิดหน้าต่าง (กด X) จะซ่อนแทนที่จะปิดแอปจริงเมื่อ `run_in_tray=true` (ค่าเริ่มต้น) — ทดสอบแล้วว่า pipeline ยังทำงานต่อ ไม่ถูกหยุด; `autostart=true` (ค่าเริ่มต้น) เริ่มแปลเองหลังหน้าต่างเปิด — ทดสอบด้วยการ pump event loop จริงยืนยันว่า pipeline ถูกสร้างและ `.start()` ถูกเรียกจริง
+
+### ข้อจำกัดที่ยอมรับและบันทึกตรงๆ
+- **Global hotkey (Ctrl+Alt+T / Ctrl+Alt+E) เขียนโค้ดตามหัวข้อ 13.7 ครบแล้ว (RegisterHotKey + WM_HOTKEY native event filter) แต่ยังไม่เคยยืนยันว่ากดแล้วทำงานจริงบนเครื่องผู้ใช้** ด้วยข้อจำกัดเดียวกับที่บันทึกไว้ในเฟส 5 (window station ของเครื่องมือ shell ที่ผมใช้แยกจากจอผู้ใช้จริง ตรวจสอบการส่ง WM_HOTKEY จริงไม่ได้จากฝั่งผม) โค้ดออกแบบให้ล้มเหลวอย่างปลอดภัย (ลงทะเบียนไม่ได้ก็ไม่ crash ตามหัวข้อ 13.7) แต่การันตีว่า "กดแล้วทำงาน" ไม่ได้ในตอนนี้
+- **pipeline.py ยังไม่ใช้ regions/profiles ที่สร้างไว้ในเฟส 2B เลย** — ตอนนี้ OCR สแกนเต็มจอเสมอ (เท่ากับโปรไฟล์ generic ตลอดเวลา) ยังไม่มีการ crop ตาม region หรือเลือกโปรไฟล์อัตโนมัติจากชื่อโปรเซส/หน้าต่าง — นี่คือช่องว่างสำคัญที่ต้องทำต่อ (ดูหัวข้อ "งานค้าง" ด้านล่าง)
+
+### งานค้างของเฟส 5B (ยังไม่ได้ทำ)
+1. เชื่อม `regions.py`/`profiles.py` เข้ากับ `pipeline.py` จริง (crop ต่อ region, เลือกโปรไฟล์อัตโนมัติจากหน้าต่าง)
+2. `ui_region_editor.py` — หน้าต่างลากกรอบเลือกพื้นที่
+3. `profile_wizard.py` — สร้างโปรไฟล์จากตัวอย่างที่ผู้ใช้เก็บ
+4. WGC (`capture_target=window`) + `visible_to_stream`
+5. ทดสอบด้วยโปรไฟล์ P5X จริง (ยังใช้ภาพประมาณการอยู่ ไม่มีภาพจริง)
+
+**เฟส 5B: ทำบางส่วน ⏳** (จอสอง/watchdog/tray/autostart เสร็จและทดสอบแล้ว, region editor/wizard/WGC ยังไม่ได้ทำ)

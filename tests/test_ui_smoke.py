@@ -170,6 +170,115 @@ def test_manager_dialog_add_glossary_term(qapp, tmp_path):
     dialog.close()
 
 
+def _two_monitor_cfg(tmp_path):
+    return {
+        "overlay": {}, "fast": {}, "ocr": {}, "layout": {}, "display": {"mirror_fps": 30},
+        "text": {"overrides_path": str(tmp_path / "o.json"), "glossary_path": str(tmp_path / "g.json")},
+        "cache": {"path": str(tmp_path / "c.json")},
+    }
+
+
+def test_main_window_defaults_to_mode_b_with_two_monitors(qapp, tmp_path, monkeypatch):
+    import gametrans.ui_main as ui_main_mod
+
+    monkeypatch.setattr(
+        ui_main_mod,
+        "enumerate_monitors",
+        lambda: [_monitor_stub(0, True), _monitor_stub(1, False, left=1920)],
+    )
+    from gametrans.ui_main import MainWindow
+
+    win = MainWindow(_two_monitor_cfg(tmp_path))
+    assert win.mode_combo.currentData() == "B"
+    assert win.monitor_combo.currentIndex() == 0
+    assert win.output_monitor_combo.currentIndex() == 1
+    win.close()
+
+
+def test_main_window_defaults_to_mode_a_with_one_monitor(qapp, tmp_path, monkeypatch):
+    import gametrans.ui_main as ui_main_mod
+
+    monkeypatch.setattr(ui_main_mod, "enumerate_monitors", lambda: [_monitor_stub(0, True)])
+    from gametrans.ui_main import MainWindow
+
+    win = MainWindow(_two_monitor_cfg(tmp_path))
+    assert win.mode_combo.currentData() == "A"
+    win.close()
+
+
+def test_main_window_falls_back_to_mode_a_when_output_equals_capture_monitor(qapp, tmp_path, monkeypatch):
+    import gametrans.ui_main as ui_main_mod
+
+    monkeypatch.setattr(
+        ui_main_mod,
+        "enumerate_monitors",
+        lambda: [_monitor_stub(0, True), _monitor_stub(1, False, left=1920)],
+    )
+    from gametrans.ui_main import MainWindow
+
+    win = MainWindow(_two_monitor_cfg(tmp_path))
+    win.mode_combo.setCurrentIndex(win.mode_combo.findData("B"))
+    win.monitor_combo.setCurrentIndex(0)
+    win.output_monitor_combo.setCurrentIndex(0)  # same as capture monitor
+
+    mode, capture_monitor, output_monitor = win._resolve_mode_and_monitors()
+    assert mode == "A"
+    win.close()
+
+
+def test_main_window_watchdog_restarts_stalled_pipeline(qapp, tmp_path, monkeypatch):
+    import gametrans.ui_main as ui_main_mod
+
+    monkeypatch.setattr(ui_main_mod, "enumerate_monitors", lambda: [_monitor_stub(0, True)])
+    from gametrans.ui_main import MainWindow
+
+    class FakePipeline:
+        """Stands in for the real Pipeline (no GPU/screen/model needed):
+        just enough surface (store, start/stop) for _check_watchdog()'s
+        restart path to exercise, so this test proves the restart LOGIC
+        works without needing real hardware."""
+
+        instances: list = []
+
+        def __init__(self, cfg, on_frame, on_status, watchdog=None, **kwargs):
+            self.started_with = None
+            FakePipeline.instances.append(self)
+
+        def start(self, monitor):
+            self.started_with = monitor
+
+        def stop(self, timeout_s=3.0):
+            pass
+
+    monkeypatch.setattr(ui_main_mod, "Pipeline", FakePipeline)
+
+    win = MainWindow(_two_monitor_cfg(tmp_path))
+    win.mode_combo.setCurrentIndex(win.mode_combo.findData("A"))
+    win.monitor_combo.setCurrentIndex(0)
+    win._start()
+
+    assert isinstance(win._pipeline, FakePipeline)
+    old_pipeline = win._pipeline
+
+    # force the watchdog to believe capture_ocr stalled a long time ago
+    win._watchdog.heartbeat("capture_ocr", now=0.0)
+    import time as _time
+    monkeypatch.setattr(_time, "monotonic", lambda: 100.0)
+
+    win._check_watchdog()
+
+    assert win._pipeline is not old_pipeline, "watchdog should have replaced the stalled pipeline"
+    assert isinstance(win._pipeline, FakePipeline)
+    assert win._pipeline.started_with is not None
+    win._stop()
+
+
+def _monitor_stub(index, is_primary, left=0):
+    from gametrans.platform_win import MonitorInfo
+
+    return MonitorInfo(index=index, left=left, top=0, width=1920, height=1080, dpi_scale=1.0, is_primary=is_primary, device_name=f"D{index}")
+
+
 def test_manager_dialog_clear_cache_keeps_overrides(qapp, tmp_path):
     from gametrans.ui_manager import ManagerDialog
 

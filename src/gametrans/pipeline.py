@@ -45,6 +45,12 @@ class FrameResult:
     capture_width: int
     capture_height: int
     ocr_ms: float = 0.0
+    # The captured frame this OCR result came from (BGR numpy array, or
+    # None if the caller doesn't need it -- mode A overlay doesn't, mode B
+    # mirror does). Kept as a reference, not copied, per spec section 3A:
+    # "แชร์ผ่าน reference/copy-on-write ไม่จับภาพซ้ำ". A consumer that
+    # mutates it (e.g. drawing over it) MUST copy first.
+    frame_image: Any = None
 
 
 @dataclass(frozen=True)
@@ -94,6 +100,7 @@ class Pipeline:
         ocr_func: Callable = _default_ocr_func,
         fast_translator_factory: Callable = _default_translator_factory,
         refine_translator: Optional[Any] = None,
+        watchdog: Optional[Any] = None,
     ) -> None:
         self.cfg = cfg
         self.on_frame = on_frame
@@ -118,6 +125,7 @@ class Pipeline:
         self._ocr_func = ocr_func
         self._fast_translator_factory = fast_translator_factory
         self._refine_translator = refine_translator
+        self._watchdog = watchdog
 
         self._threads: list[threading.Thread] = []
         self._stop_event = threading.Event()
@@ -163,6 +171,8 @@ class Pipeline:
         prev_blocks: list[Block] = []
         try:
             while not self._stop_event.is_set():
+                if self._watchdog is not None:
+                    self._watchdog.heartbeat("capture_ocr")
                 t0 = time.perf_counter()
                 frame = backend.grab(monitor.left, monitor.top, monitor.width, monitor.height)
                 if frame is None:
@@ -209,6 +219,7 @@ class Pipeline:
                     capture_width=monitor.width,
                     capture_height=monitor.height,
                     ocr_ms=ocr_ms,
+                    frame_image=frame,
                 )
                 with self._frame_lock:
                     self._latest_frame = result
@@ -237,6 +248,8 @@ class Pipeline:
         glossary = self.store.get_glossary()
 
         while not self._stop_event.is_set():
+            if self._watchdog is not None:
+                self._watchdog.heartbeat("fast_translate")
             try:
                 text = self._translate_queue.get(timeout=0.05)
             except queue.Empty:
