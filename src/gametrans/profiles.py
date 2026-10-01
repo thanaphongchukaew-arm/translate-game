@@ -34,6 +34,13 @@ class Profile:
     capture_target_type: str
     display_mode_default: str
     notes: str
+    # Per-game text rules (see textrules.py): fixed translations for short
+    # labels, regexes for text that must not be translated, OCR misreads to
+    # repair, and the Thai font to draw with.
+    overrides: dict = field(default_factory=dict)
+    skip_patterns: tuple = ()
+    ocr_fixes: dict = field(default_factory=dict)
+    overlay_font: Optional[str] = None
 
 
 GENERIC_PROFILE = Profile(
@@ -49,6 +56,12 @@ GENERIC_PROFILE = Profile(
     display_mode_default="auto",
     notes="โปรไฟล์เริ่มต้นสำหรับเกมที่ยังไม่มีโปรไฟล์เฉพาะ สแกนทั้งจอ ไม่ต้องตั้งค่า",
 )
+
+
+def _str_map(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): str(v) for k, v in raw.items()}
 
 
 def _parse_regions(raw: Any, profile_id: str) -> tuple[Region, ...]:
@@ -101,6 +114,10 @@ def parse_profile(data: dict[str, Any]) -> Optional[Profile]:
             capture_target_type=data.get("capture_target", {}).get("type", "auto"),
             display_mode_default=data.get("display_mode_default", "auto"),
             notes=data.get("notes", ""),
+            overrides=_str_map(data.get("overrides")),
+            skip_patterns=tuple(str(x) for x in (data.get("skip_patterns") or ())),
+            ocr_fixes=_str_map(data.get("ocr_fixes")),
+            overlay_font=data.get("overlay_font") or None,
         )
     except (KeyError, TypeError, ValueError) as exc:
         logger.warning("profiles: %s failed to parse (%s) — skipping", profile_id, exc)
@@ -127,6 +144,10 @@ def profile_to_dict(profile: Profile) -> dict[str, Any]:
         "capture_target": {"type": profile.capture_target_type},
         "display_mode_default": profile.display_mode_default,
         "notes": profile.notes,
+        "overrides": dict(profile.overrides),
+        "skip_patterns": list(profile.skip_patterns),
+        "ocr_fixes": dict(profile.ocr_fixes),
+        "overlay_font": profile.overlay_font,
     }
 
 

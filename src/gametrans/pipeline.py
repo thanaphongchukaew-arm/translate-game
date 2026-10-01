@@ -37,8 +37,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from gametrans.layout import Block, OcrLine, merge_lines, track_blocks
+from gametrans.layout import Block, OcrLine, group_display_type, merge_lines, track_blocks
 from gametrans.ocr_post import clean_text
+from gametrans.review_log import ReviewLog
+from gametrans.textrules import TextRules
 from gametrans.regions import Region, crop_frame, rect_to_pixels
 from gametrans.store import Store
 from gametrans.textprep import prepare
@@ -67,6 +69,8 @@ class FrameResult:
     # "แชร์ผ่าน reference/copy-on-write ไม่จับภาพซ้ำ". A consumer that
     # mutates it (e.g. drawing over it) MUST copy first.
     frame_image: Any = None
+    # Thai font preferred by the active profile ("" = use the app default).
+    font: str = ""
 
 
 @dataclass(frozen=True)
@@ -125,6 +129,16 @@ def _default_translator_factory(cfg: dict):
     )
 
 
+def _covered(a: Block, b: Block) -> bool:
+    """True when most of the smaller block's area lies inside the other."""
+    iw = min(a.x2, b.x2) - max(a.x1, b.x1)
+    ih = min(a.y2, b.y2) - max(a.y1, b.y1)
+    if iw <= 0 or ih <= 0:
+        return False
+    smaller = min((a.x2 - a.x1) * (a.y2 - a.y1), (b.x2 - b.x1) * (b.y2 - b.y1))
+    return smaller > 0 and iw * ih / smaller >= 0.6
+
+
 class Pipeline:
     def __init__(
         self,
@@ -165,6 +179,11 @@ class Pipeline:
         self._profile_selector = profile_selector
         self._refine_translator = refine_translator
         self._watchdog = watchdog
+        self._rules = TextRules()
+        log_cfg = cfg.get("log", {}) if isinstance(cfg, dict) else {}
+        self._review = ReviewLog(
+            log_cfg.get("review_path", "ocr_review.jsonl"), bool(log_cfg.get("ocr_review", False))
+        )
         self.active_profile = None  # set once _ocr_loop selects it; readable for UI/status
 
         self._threads: list[threading.Thread] = []
@@ -292,6 +311,7 @@ class Pipeline:
             logger.warning("pipeline: profile selection failed (%s) -- using no regions (generic)", exc)
             profile = None
         self.active_profile = profile
+        self._rules = TextRules.from_profile(profile)
         regions = list(getattr(profile, "regions", ()) or ())
         if regions:
             logger.info("pipeline: profile %r active with %d region(s)", profile.id, len(regions))
@@ -344,26 +364,22 @@ class Pipeline:
                         crop = crop_frame(frame, region.rect)
                         region_cfg = region_cfgs[region.name]
                         lines = self._ocr_func(crop, region_cfg)
-                        offset_lines = [
-                            OcrLine(
-                                x1=ln.x1 + offset_x, y1=ln.y1 + offset_y,
-                                x2=ln.x2 + offset_x, y2=ln.y2 + offset_y,
-                                text=clean_text(ln.text), score=ln.score,
-                            )
-                            for ln in lines
-                        ]
+                        offset_lines = self._prepare_lines(lines, offset_x, offset_y, monitor.height)
                         cur = merge_lines(offset_lines, region_cfg)
                         region_prev_blocks[region.name] = track_blocks(
                             region_prev_blocks[region.name], cur, now, region_cfg
                         )
-                        all_blocks.extend(region_prev_blocks[region.name])
+                        # regions may overlap (a banner inside a dialogue
+                        # area): keep the first region's reading of any spot
+                        earlier = list(all_blocks)
+                        all_blocks.extend(
+                            b for b in region_prev_blocks[region.name]
+                            if not any(_covered(b, kept) for kept in earlier)
+                        )
                     cur_blocks = all_blocks
                 else:
                     lines = self._ocr_func(frame, self.cfg)
-                    cleaned = [
-                        OcrLine(x1=ln.x1, y1=ln.y1, x2=ln.x2, y2=ln.y2, text=clean_text(ln.text), score=ln.score)
-                        for ln in lines
-                    ]
+                    cleaned = self._prepare_lines(lines, 0, 0, monitor.height)
                     cur_merged = merge_lines(cleaned, self.cfg)
                     prev_blocks = track_blocks(prev_blocks, cur_merged, now, self.cfg)
                     cur_blocks = prev_blocks
@@ -383,6 +399,7 @@ class Pipeline:
                 capture_height=monitor.height,
                 ocr_ms=ocr_ms,
                 frame_image=frame,
+                font=getattr(self.active_profile, "overlay_font", None) or "",
             )
             with self._frame_lock:
                 self._latest_frame = result
@@ -412,13 +429,32 @@ class Pipeline:
         layout_cfg = cfg.setdefault("layout", {})
         layout_cfg["stable_ms_for_refine"] = preset.get("stable_ms_for_refine", layout_cfg.get("stable_ms_for_refine", 500))
         layout_cfg["context_lines"] = preset.get("context_lines", layout_cfg.get("context_lines", 3))
+        if "stylized_pass" in preset:
+            cfg.setdefault("ocr", {})["stylized_pass"] = bool(preset["stylized_pass"])
         if region.min_score is not None:
             cfg.setdefault("ocr", {})["min_score"] = region.min_score
         return cfg
 
+    def _prepare_lines(self, lines: list[OcrLine], dx: float, dy: float, frame_h: float) -> list[OcrLine]:
+        """Clean raw OCR lines, apply the profile's text rules, drop text the
+        profile says never to translate, shift into frame coordinates and
+        join big stylized titles into one phrase."""
+        out: list[OcrLine] = []
+        for ln in lines:
+            text = self._rules.fix(clean_text(ln.text))
+            self._review.record(ln.text, text, ln.score)
+            if self._rules.should_skip(text):
+                continue
+            out.append(OcrLine(x1=ln.x1 + dx, y1=ln.y1 + dy, x2=ln.x2 + dx, y2=ln.y2 + dy, text=text, score=ln.score))
+        return group_display_type(out, frame_h)
+
     def _translate_blocks(self, blocks: list[Block], glossary: dict) -> list[TranslatedBlock]:
         translated: list[TranslatedBlock] = []
         for block in blocks:
+            fixed = self._rules.override(block.text)
+            if fixed is not None:
+                translated.append(TranslatedBlock(block=block, thai=fixed, final=True))
+                continue
             entry = self.store.lookup(block.text)
             if entry is not None:
                 translated.append(TranslatedBlock(block=block, thai=entry.thai, final=entry.final))

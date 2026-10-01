@@ -11,15 +11,97 @@
   "regions": [
     {
       "name": "dialogue_box",
-      "rect": [0.05, 0.72, 0.95, 0.95],
+      "rect": [
+        0.05,
+        0.72,
+        0.95,
+        0.95
+      ],
       "preset": "dialogue",
       "min_score": 0.5,
       "typewriter": true,
       "translate_position": "in_place"
+    },
+    {
+      "name": "menu_bar",
+      "rect": [
+        0.3,
+        0.0,
+        0.98,
+        0.22
+      ],
+      "preset": "ui_heavy",
+      "min_score": 0.5,
+      "typewriter": false,
+      "translate_position": "in_place"
+    },
+    {
+      "name": "title_banner",
+      "rect": [
+        0.3,
+        0.5,
+        0.72,
+        1.0
+      ],
+      "preset": "ui_heavy",
+      "min_score": 0.5,
+      "typewriter": false,
+      "translate_position": "in_place"
     }
   ],
   "glossary_path": "glossary.p5x.json",
-  "capture_target": {"type": "auto"},
+  "capture_target": {
+    "type": "auto"
+  },
   "display_mode_default": "auto",
-  "notes": "โปรไฟล์เริ่มต้นแบบประมาณการ (ยังไม่มีภาพหน้าจอจริงตอนสร้าง) — region 'dialogue_box' เป็นค่ากะประมาณตำแหน่งกล่องบทสนทนาด้านล่างจอสไตล์ Persona ทั่วไป ต้องปรับด้วย region editor หรือ wizard เมื่อมีภาพจริง/เล่นจริง (ดู DECISIONS.md เฟส 2B) เกมเป็น live-service gacha ผูกบัญชีออนไลน์ จึง risk_level=medium ตามหัวข้อ 1B/1C แม้ผู้ใช้จะเล่นคนเดียวก็ตาม (ความเสี่ยงมาจากระบบเกม ไม่ใช่โหมดเล่น)"
+  "notes": "โปรไฟล์เริ่มต้นแบบประมาณการ (ยังไม่มีภาพหน้าจอจริงตอนสร้าง) — region 'dialogue_box' เป็นค่ากะประมาณตำแหน่งกล่องบทสนทนาด้านล่างจอสไตล์ Persona ทั่วไป ต้องปรับด้วย region editor หรือ wizard เมื่อมีภาพจริง/เล่นจริง (ดู DECISIONS.md เฟส 2B) เกมเป็น live-service gacha ผูกบัญชีออนไลน์ จึง risk_level=medium ตามหัวข้อ 1B/1C แม้ผู้ใช้จะเล่นคนเดียวก็ตาม (ความเสี่ยงมาจากระบบเกม ไม่ใช่โหมดเล่น) | region title_banner/menu_bar/footer_buttons กะจากภาพหน้าเว็บ P5X (1909x907) ไม่ใช่หน้าจอในเกมจริง ปรับด้วย region editor ได้; overrides/skip_patterns/ocr_fixes ใช้กับคำสั้นๆ ที่แปลตรงตัวแล้วไม่ดี",
+  "overrides": {
+    "NEWS": "ข่าวสาร",
+    "CHARACTERS": "ตัวละคร",
+    "SCHOOL LIFE": "ชีวิตนักเรียน",
+    "METAVERSE LIFE": "ชีวิตในเมตาเวิร์ส",
+    "FEATURE": "ฟีเจอร์",
+    "FEATURES": "ฟีเจอร์",
+    "Support": "ช่วยเหลือ",
+    "FAQ": "คำถามที่พบบ่อย",
+    "GOLD": "ทอง",
+    "Windows Download": "ดาวน์โหลดสำหรับ Windows",
+    "Download on the App Store": "ดาวน์โหลดบน App Store",
+    "GET IT ON Google Play": "รับได้ที่ Google Play",
+    "The New Phantom Thieves Have Arrived!": "เหล่าฟานทอมทีฟรุ่นใหม่มาถึงแล้ว!",
+    "GET IT ON": "รับได้ที่",
+    "Download on the": "ดาวน์โหลดบน",
+    "Download": "ดาวน์โหลด",
+    "Log x1 Auto Skip": "ประวัติ x1 อัตโนมัติ ข้าม",
+    "Skip All": "ข้ามทั้งหมด",
+    "Skip All Q": "ข้ามทั้งหมด",
+    "Auto": "อัตโนมัติ",
+    "Log": "ประวัติ",
+    "Skip": "ข้าม"
+  },
+  "skip_patterns": [
+    "^PERSONA\\s*5\\b",
+    "^P5X?$",
+    "^MyCard$",
+    "PHANTOM\\s*X$",
+    "^\\W*\\w?\\W*$",
+    "^\\W*(Tab|Esc\\w?|L?[FZ]|[A-Z])\\W*\\]?\\W*$",
+    "^\\W*L[FZ]\\W*\\]?$",
+    "^\\W*(Tab|Esc|L?[FZ])\\w?\\W*$",
+    "^\\W*\\[?Tab\\w?\\W*$",
+    "^L[FZ]\\W*\\w?\\W*$"
+  ],
+  "ocr_fixes": {
+    "METAVERSELIGE": "METAVERSE LIFE",
+    "METAVERSELIFE": "METAVERSE LIFE",
+    "MyCird": "MyCard",
+    "THEIPHANTOMX": "THE PHANTOM X",
+    "Thievest": "Thieves",
+    "Thieves!": "Thieves",
+    "TETAVERSELINE": "METAVERSE LIFE",
+    "METAVERSELINE": "METAVERSE LIFE",
+    "CLoc Lx1 FAuto ii skip": "Log x1 Auto Skip",
+    "Log Lx1 Auto ii skip": "Log x1 Auto Skip"
+  },
+  "overlay_font": "Leelawadee UI"
 }

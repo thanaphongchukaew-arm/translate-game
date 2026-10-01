@@ -105,3 +105,17 @@ def test_movement_over_3px_updates_position():
     cur = [_block(-1, 20.0, 10.0, 110.0, 30.0, "Hello")]  # moved 10px
     result = track_blocks(prev, cur, now=2.0, cfg=None)
     assert result[0].x1 == 20.0
+
+
+def test_merge_lines_joins_word_fragments_on_one_row():
+    from gametrans.layout import OcrLine, merge_lines
+
+    lines = [
+        OcrLine(602, 121, 640, 150, "All", 1.0),
+        OcrLine(650, 121, 710, 156, "right", 1.0),
+        OcrLine(728, 127, 840, 156, "everyone,", 1.0),
+        OcrLine(603, 157, 800, 190, "French Revolution.", 1.0),
+    ]
+    blocks = merge_lines(lines)
+    assert len(blocks) == 1
+    assert blocks[0].text == "All right everyone,\nFrench Revolution."

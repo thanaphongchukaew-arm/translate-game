@@ -54,10 +54,93 @@ def _cfg_get(cfg: Any, *path: str, default: Any = None) -> Any:
     return default if node is None else node
 
 
+def group_display_type(lines: list[OcrLine], frame_h: float, min_frac: float = 0.09) -> list[OcrLine]:
+    """Join the words of a big stylized title ("The New Phantom / Thieves
+    Have Arrived!") into ONE line in reading order. Display type is set in
+    scattered, tilted, mixed-size words, so merge_lines' strict alignment
+    rules would leave each word as its own block and translate them out of
+    context. Only lines taller than `min_frac` of the frame take part, so
+    ordinary menus and dialogue are untouched."""
+    anchors = [ln.y2 - ln.y1 for ln in lines if (ln.y2 - ln.y1) >= min_frac * frame_h]
+    if not anchors:
+        return lines
+    # smaller words of the same title ("Have") join once a big word exists
+    big = [ln for ln in lines if (ln.y2 - ln.y1) >= 0.5 * max(anchors)]
+    if len(big) < 2:
+        return lines
+    groups: list[list[OcrLine]] = []
+    for ln in big:
+        h = ln.y2 - ln.y1
+        for g in groups:
+            if any(
+                ln.x1 - 0.8 * h <= o.x2 and o.x1 - 0.8 * h <= ln.x2
+                and ln.y1 - 0.8 * h <= o.y2 and o.y1 - 0.8 * h <= ln.y2
+                for o in g
+            ):
+                g.append(ln)
+                break
+        else:
+            groups.append([ln])
+    out = [ln for ln in lines if ln not in big]
+    for g in groups:
+        if len(g) < 2:
+            out.extend(g)
+            continue
+        avg_h = sum(o.y2 - o.y1 for o in g) / len(g)
+        rows: list[list[OcrLine]] = []
+        for o in sorted(g, key=lambda o: (o.y1 + o.y2) / 2):
+            cy = (o.y1 + o.y2) / 2
+            if rows and cy - (rows[-1][-1].y1 + rows[-1][-1].y2) / 2 <= 0.35 * avg_h:
+                rows[-1].append(o)
+            else:
+                rows.append([o])
+        ordered = [o for row in rows for o in sorted(row, key=lambda o: o.x1)]
+        out.append(OcrLine(
+            x1=min(o.x1 for o in g), y1=min(o.y1 for o in g),
+            x2=max(o.x2 for o in g), y2=max(o.y2 for o in g),
+            text=" ".join(o.text for o in ordered),
+            score=min(o.score for o in g),
+        ))
+    return out
+
+
+def _join_row_fragments(lines: list[OcrLine]) -> list[OcrLine]:
+    """Glue OCR fragments of ONE text row back together ("All" / "right" /
+    "everyone," read as separate boxes): same row (strong vertical overlap),
+    similar height, small horizontal gap. Side-by-side columns have a
+    larger gap and stay separate."""
+    rows = sorted(lines, key=lambda ln: ln.x1)
+    out: list[OcrLine] = []
+    used = [False] * len(rows)
+    for i, ln in enumerate(rows):
+        if used[i]:
+            continue
+        used[i] = True
+        cur = ln
+        for j in range(i + 1, len(rows)):
+            if used[j]:
+                continue
+            o = rows[j]
+            h = min(cur.y2 - cur.y1, o.y2 - o.y1)
+            overlap = min(cur.y2, o.y2) - max(cur.y1, o.y1)
+            hmax = max(cur.y2 - cur.y1, o.y2 - o.y1)
+            if h <= 0 or overlap < 0.6 * h or hmax > 1.4 * h:
+                continue
+            if -1.0 * h <= o.x1 - cur.x2 <= 0.8 * h:
+                used[j] = True
+                cur = OcrLine(
+                    x1=min(cur.x1, o.x1), y1=min(cur.y1, o.y1),
+                    x2=max(cur.x2, o.x2), y2=max(cur.y2, o.y2),
+                    text=cur.text + " " + o.text, score=min(cur.score, o.score),
+                )
+        out.append(cur)
+    return out
+
+
 def merge_lines(lines: list[OcrLine], cfg: Any = None) -> list[Block]:
     """Merge same-frame OCR lines into blocks. Deterministic regardless of
     input order (always sorts by (y1, x1) first)."""
-    ordered = sorted(lines, key=lambda ln: (ln.y1, ln.x1))
+    ordered = sorted(_join_row_fragments(lines), key=lambda ln: (ln.y1, ln.x1))
 
     class _Open:
         __slots__ = ("x1", "y1", "x2", "y2", "texts", "line_h", "last_x1", "last_center", "last_y2")

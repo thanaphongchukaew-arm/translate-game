@@ -26,6 +26,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "min_box_h": 8,
         "max_blocks": 60,
         "upscale_small_text": True,
+        "stylized_pass": True,
+        "stylized_cooldown_s": 1.0,
         "rec_model_path": "models/ocr/en/en_PP-OCRv3_rec_infer.onnx",
     },
     "layout": {"hold_cycles": 2, "stable_cycles_for_refine": 2, "stable_ms_for_refine": 500, "context_lines": 3},
@@ -47,7 +49,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "language": {"source": "auto", "target": "th", "cjk_pivot_via_english": "auto"},
     "resources": {"low_priority": False, "adaptive_throttle": False, "gpu_for_game_first": False},
     "cache": {"path": "translation_cache.json", "max_entries": 8000},
-    "log": {"level": "INFO", "path": "gametrans.log", "log_text": False},
+    "log": {"level": "INFO", "path": "gametrans.log", "log_text": False, "ocr_review": False, "review_path": "ocr_review.jsonl"},
     "network": {"allow_outbound": False},
 }
 
@@ -58,6 +60,7 @@ _RANGES: dict[str, tuple[float, float]] = {
     "ocr.min_score": (0.0, 1.0),
     "ocr.min_box_h": (1, 200),
     "ocr.max_blocks": (1, 500),
+    "ocr.stylized_cooldown_s": (0, 60),
     "layout.hold_cycles": (0, 50),
     "layout.stable_cycles_for_refine": (0, 50),
     "layout.stable_ms_for_refine": (0, 60000),

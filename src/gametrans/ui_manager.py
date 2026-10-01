@@ -10,12 +10,12 @@ from PySide6 import QtWidgets
 from gametrans.store import Store
 
 
-class ManagerDialog(QtWidgets.QDialog):
+class ManagerDialog(QtWidgets.QWidget):
+    """Embedded in the main window's settings page (single-window UI)."""
+
     def __init__(self, store: Store, parent=None) -> None:
         super().__init__(parent)
         self.store = store
-        self.setWindowTitle("จัดการคำแปล")
-        self.resize(640, 420)
 
         layout = QtWidgets.QVBoxLayout(self)
         self.tabs = QtWidgets.QTabWidget()

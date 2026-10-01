@@ -32,6 +32,8 @@ _WORDLIST = frozenset(
     story chapter chapters mission missions objective objectives
     online offline connect connection lost reconnect reconnecting
     party guild raid tonight anyone tomorrow today yesterday night day
+    phantom thief thieves arrived have new the
+    school life metaverse feature features characters character news support faq
     morning evening afternoon time turns turn build research complete
     granary iron working gold enough insufficient resources resource
     summon summons rate pity daily quest stamina battle pass banner limited
@@ -54,6 +56,7 @@ _CONFUSABLE_GROUPS: list[tuple[str, ...]] = [
     ("5", "S"),
     ("8", "B"),
     ("rn", "m"),
+    ("h", "n"),
 ]
 
 _QUOTE_MAP = str.maketrans({
@@ -70,6 +73,41 @@ _HYPHEN_BREAK_RE = re.compile(r"(\w+)-\s+(\w+)")
 # always fix — a punctuation mark is never immediately followed by a letter
 # with no space in correctly-written English.
 _MISSING_SPACE_AFTER_PUNCT_RE = re.compile(r"([,!?;])([A-Za-z])")
+
+
+# Stylized titles ("The New Phantom") are often read with the gap between
+# differently-sized letters lost: "TheNew". Split lower->Upper boundaries only
+# when both halves are known words, so names like "McDonald" stay intact.
+_CAMEL_RE = re.compile(r"\b([A-Za-z][a-z]+)([A-Z][a-z]+)\b")
+
+
+def _split_glued_words(text: str) -> str:
+    def _sub(m: re.Match[str]) -> str:
+        if m.group(1).lower() in _WORDLIST and m.group(2).lower() in _WORDLIST:
+            return f"{m.group(1)} {m.group(2)}"
+        return m.group(0)
+
+    return _CAMEL_RE.sub(_sub, text)
+
+
+_GLUED_RE = re.compile(r"\b[A-Za-z]{7,}\b")
+
+
+def _segment_glued_caps(text: str) -> str:
+    """Stylized menu labels ("SCHOOL LIFE") lose the gap between words, e.g.
+    "SCHOOLLIFE". Split a single-case token into two known words, only when
+    the token itself isn't already a known word."""
+    def _sub(m: re.Match[str]) -> str:
+        tok = m.group(0)
+        if not (tok.isupper() or tok.islower()) or tok.lower() in _WORDLIST:
+            return tok
+        low = tok.lower()
+        for i in range(3, len(low) - 2):
+            if low[:i] in _WORDLIST and low[i:] in _WORDLIST:
+                return f"{tok[:i]} {tok[i:]}"
+        return tok
+
+    return _GLUED_RE.sub(_sub, text)
 
 
 def _normalize_quotes(text: str) -> str:
@@ -143,6 +181,8 @@ def clean_text(text: str) -> str:
     text = _normalize_quotes(text)
     text = _merge_hyphenation(text)
     text = _fix_missing_space_after_punctuation(text)
+    text = _split_glued_words(text)
+    text = _segment_glued_caps(text)
     text = re.sub(r"[ \t]+", " ", text)
     text = "\n".join(line.strip() for line in text.split("\n")).strip()
 

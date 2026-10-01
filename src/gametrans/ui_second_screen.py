@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from gametrans.overlay import fit_font_and_rect
+from gametrans.overlay import TITLE_BLOCK_FRAC, TITLE_PAD_FRAC, fit_font_and_rect
 from gametrans.pipeline import FrameResult, Pipeline
 from gametrans.platform_win import MonitorInfo, exclude_from_capture
 
@@ -41,7 +41,10 @@ class MirrorWindow(QtWidgets.QWidget):
     """Mode B: full copy of the captured game frame with original text
     painted over and replaced by the Thai translation, on a second
     monitor. Never the capture target itself (caller picks a different
-    monitor than the one being captured -- see ui_main.py)."""
+    monitor than the one being captured -- see ui_main.py). Deliberately
+    NOT excluded from screen capture: it lives on a different monitor than
+    the capture target (no feedback loop), so the user can screenshot or
+    screen-share/stream this window."""
 
     def __init__(self, output_monitor: MonitorInfo, mirror_fps: int = 60) -> None:
         super().__init__()
@@ -60,6 +63,7 @@ class MirrorWindow(QtWidgets.QWidget):
         # while shown, unlike the background scene/animation behind it.
         self._latest_raw = None
         self._latest_blocks: tuple = ()
+        self._latest_font = ""
 
         self.setWindowTitle("Game Translator - Output")
         self.setGeometry(output_monitor.left, output_monitor.top, output_monitor.width, output_monitor.height)
@@ -70,10 +74,6 @@ class MirrorWindow(QtWidgets.QWidget):
         self._timer.start(interval_ms)
 
         self._fit_cache: dict[int, tuple[str, int, QtCore.QRectF]] = {}
-
-    def showEvent(self, event: QtGui.QShowEvent) -> None:  # noqa: N802 - Qt override
-        super().showEvent(event)
-        exclude_from_capture(int(self.winId()))
 
     def attach_pipeline(self, pipeline: Pipeline) -> None:
         self._pipeline = pipeline
@@ -87,6 +87,10 @@ class MirrorWindow(QtWidgets.QWidget):
         frame_result = self._pipeline.snapshot()
         if frame_result is not None:
             self._latest_blocks = frame_result.blocks
+            font = frame_result.font or "Leelawadee UI"
+            if font != self._latest_font:
+                self._latest_font = font
+                self._fit_cache.clear()
         if self._latest_raw is not None:
             self.update()
 
@@ -111,7 +115,17 @@ class MirrorWindow(QtWidgets.QWidget):
                 x2, y2 = min(capture_width, x2), min(capture_height, y2)
                 if x2 <= x1 or y2 <= y1:
                     continue
-                color = _median_fill_color(raw, x1, y1, x2, y2)
+                if (y2 - y1) > TITLE_BLOCK_FRAC * capture_height:
+                    # tall merged title card: the surrounding ring is busy
+                    # artwork, a median of it paints a muddy block
+                    color = (14, 14, 20)
+                    # the title graphic (tilted outline, shadow) extends past
+                    # the OCR box; pad so no sliver of it peeks out
+                    pad = int(TITLE_PAD_FRAC * (y2 - y1))
+                    x1, y1 = max(0, x1 - pad), max(0, y1 - pad)
+                    x2, y2 = min(capture_width, x2 + pad), min(capture_height, y2 + pad)
+                else:
+                    color = _median_fill_color(raw, x1, y1, x2, y2)
                 img_array[y1:y2, x1:x2] = (color[2], color[1], color[0])  # back to BGR for the array
 
             qimg = _frame_to_qimage(img_array)
@@ -121,6 +135,7 @@ class MirrorWindow(QtWidgets.QWidget):
             painter.fillRect(self.rect(), QtGui.QColor(0, 0, 0))
             painter.drawImage(x_off, y_off, scaled)
 
+            font_name = self._latest_font or "Leelawadee UI"
             sx = scaled.width() / max(capture_width, 1)
             sy = scaled.height() / max(capture_height, 1)
             for tb in blocks:
@@ -132,8 +147,8 @@ class MirrorWindow(QtWidgets.QWidget):
                 # Same fit-then-grow logic as OverlayWindow (mode A) --
                 # without it, Thai text longer than the original English
                 # silently gets clipped by Qt instead of shown in full.
-                font_px, rect = fit_font_and_rect(self._fit_cache, b.id, tb.thai, base_rect, "Leelawadee UI", 11)
-                font = QtGui.QFont("Leelawadee UI")
+                font_px, rect = fit_font_and_rect(self._fit_cache, b.id, tb.thai, base_rect, font_name, 11)
+                font = QtGui.QFont(font_name)
                 font.setPixelSize(font_px)
                 painter.setFont(font)
                 painter.setPen(QtGui.QColor(255, 255, 255))
@@ -161,6 +176,8 @@ class PanelWindow(QtWidgets.QWidget):
         self._max_items = 200
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:  # noqa: N802 - Qt override
+        # unlike the mirror, this window opens on the primary screen, which
+        # may be the captured one: keep it out of the capture (no feedback)
         super().showEvent(event)
         exclude_from_capture(int(self.winId()))
 
@@ -177,4 +194,6 @@ class PanelWindow(QtWidgets.QWidget):
 
         while self.list_widget.count() > self._max_items:
             self.list_widget.takeItem(0)
+        if len(self._seen) > 5 * self._max_items:
+            self._seen.clear()
         self.list_widget.scrollToBottom()

@@ -72,7 +72,7 @@ def test_fit_font_and_rect_grows_box_when_min_font_still_does_not_fit(qapp):
     font_px, rect = fit_font_and_rect(cache, 1, very_long_thai, base_rect, "Arial", 11)
     assert font_px == 11  # hit the floor
     assert rect.height() > base_rect.height()  # grew instead of clipping
-    assert rect.width() == base_rect.width()  # width never changes, only height
+    assert rect.width() >= base_rect.width()  # may widen for an unbreakable word, never shrinks
 
 
 def test_fit_font_and_rect_caches_by_block_id_and_text(qapp):

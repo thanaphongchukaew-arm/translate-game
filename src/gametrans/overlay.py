@@ -19,6 +19,10 @@ from gametrans.pipeline import FrameResult
 from gametrans.platform_win import MonitorInfo, exclude_from_capture, make_click_through
 
 
+TITLE_BLOCK_FRAC = 0.12  # a block taller than this share of the screen is a title card
+TITLE_PAD_FRAC = 0.15
+
+
 def fit_font_and_rect(
     fit_cache: dict[int, tuple[str, int, QtCore.QRectF]],
     block_id: int,
@@ -43,7 +47,9 @@ def fit_font_and_rect(
     if cached is not None and cached[0] == text:
         return cached[1], cached[2]
 
-    start_px = max(int(base_rect.height() * 0.85), min_font_px)
+    # 0.85x suits a one-line box, but a tall block (a merged title card)
+    # would start at a screen-filling size; cap the starting size softly.
+    start_px = max(int(min(base_rect.height() * 0.85, 56 + base_rect.height() * 0.1)), min_font_px)
     font = QtGui.QFont(font_name)
     chosen_px = min_font_px
     chosen_bounds = None
@@ -57,10 +63,16 @@ def fit_font_and_rect(
         )
         chosen_px = px
         chosen_bounds = bounds
-        if bounds.height() <= base_rect.height():
+        # width counts too: an unbreakable Thai word wider than the box
+        # overflows sideways (clipped at the screen edge / over neighbours)
+        if bounds.height() <= base_rect.height() and bounds.width() <= base_rect.width() + 1:
             break  # fits at this size -- stop shrinking further
 
     rect = QtCore.QRectF(base_rect)
+    if chosen_bounds is not None and chosen_bounds.width() > rect.width() + 1:
+        # still too wide at the minimum size: widen around the centre
+        extra = chosen_bounds.width() - rect.width()
+        rect.adjust(-extra / 2, 0, extra / 2, 0)
     if chosen_bounds is not None and chosen_bounds.height() > rect.height():
         # even the minimum font doesn't fit the original box -- grow the
         # box downward rather than clip (never shrinks below the original
@@ -76,6 +88,7 @@ class OverlayWindow(QtWidgets.QWidget):
         super().__init__()
         self._monitor = monitor
         self._font_name = font_name
+        self._default_font = font_name
         self._min_font_px = min_font_px
         self._frame: FrameResult | None = None
         # Per-block cache of the fitted (font_px, expanded_rect) for the
@@ -109,6 +122,10 @@ class OverlayWindow(QtWidgets.QWidget):
         pipeline's on_frame callback to this via a queued Qt signal, never
         call it directly from the capture/translate threads."""
         self._frame = frame
+        font_name = frame.font or self._default_font
+        if font_name != self._font_name:
+            self._font_name = font_name
+            self._fit_cache.clear()
         self.update()
 
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802 - Qt override
@@ -137,6 +154,12 @@ class OverlayWindow(QtWidgets.QWidget):
         font.setPixelSize(font_px)
         painter.setFont(font)
 
-        painter.fillRect(rect, QtGui.QColor(12, 12, 18, 225))
+        if base_rect.height() > TITLE_BLOCK_FRAC * self.height():
+            # title card over busy artwork: solid panel, a bit larger than
+            # the OCR box so none of the original graphic peeks out
+            pad = TITLE_PAD_FRAC * base_rect.height()
+            painter.fillRect(rect.adjusted(-pad, -pad, pad, pad), QtGui.QColor(14, 14, 20, 255))
+        else:
+            painter.fillRect(rect, QtGui.QColor(12, 12, 18, 225))
         painter.setPen(QtGui.QColor(255, 255, 255))
         painter.drawText(rect, QtCore.Qt.AlignCenter | QtCore.Qt.TextWordWrap, tb.thai)

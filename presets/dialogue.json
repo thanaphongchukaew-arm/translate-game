@@ -6,5 +6,6 @@
   "context_lines": 3,
   "enable_refine": true,
   "translate_position": "in_place",
-  "max_blocks_hint": 10
+  "max_blocks_hint": 10,
+  "stylized_pass": false
 }

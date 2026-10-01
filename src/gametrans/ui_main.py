@@ -59,6 +59,40 @@ _MODE_LABELS = {
 }
 
 
+_STYLE = """
+QWidget { background: #313338; color: #dbdee1; font-size: 14px; }
+#topbar { background: #2b2d31; border-bottom: 1px solid #1e1f22; }
+#title { font-size: 16px; font-weight: bold; color: #f2f3f5; background: transparent; }
+#gear { background: transparent; border: none; font-size: 22px; color: #b5bac1; padding: 2px 8px; border-radius: 4px; }
+#gear:hover { background: #3f4147; color: #f2f3f5; }
+#sidebar { background: #2b2d31; }
+#nav { background: transparent; border: none; outline: none; }
+#nav::item { padding: 8px 10px; border-radius: 4px; color: #949ba4; }
+#nav::item:hover { background: #35373c; color: #dbdee1; }
+#nav::item:selected { background: #404249; color: #ffffff; }
+#feed { background: #313338; border: none; }
+#feed::item { padding: 8px 10px; border-radius: 4px; }
+#feed::item:hover { background: #2e3035; }
+#hint { color: #949ba4; font-size: 12px; background: transparent; }
+#status { color: #b5bac1; background: transparent; }
+#section { color: #b5bac1; font-size: 12px; font-weight: bold; margin-top: 10px; background: transparent; }
+QPushButton { background: #4e5058; color: #ffffff; border: none; border-radius: 4px; padding: 8px 14px; }
+QPushButton:hover { background: #6d6f78; }
+QPushButton#primary { background: #5865f2; font-size: 15px; font-weight: bold; }
+QPushButton#primary:hover { background: #4752c4; }
+QComboBox, QLineEdit { background: #1e1f22; border: 1px solid #1e1f22; border-radius: 4px; padding: 7px 10px; color: #dbdee1; }
+QComboBox QAbstractItemView { background: #2b2d31; selection-background-color: #404249; }
+QTableWidget { background: #2b2d31; gridline-color: #3f4147; border: none; }
+QHeaderView::section { background: #1e1f22; color: #b5bac1; border: none; padding: 6px; }
+QTabWidget::pane { border: none; }
+QTabBar::tab { background: transparent; padding: 8px 14px; color: #949ba4; }
+QTabBar::tab:selected { color: #ffffff; border-bottom: 2px solid #5865f2; }
+QScrollBar:vertical { background: transparent; width: 10px; }
+QScrollBar::handle:vertical { background: #1a1b1e; border-radius: 5px; min-height: 30px; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+"""
+
+
 class _PipelineBridge(QtCore.QObject):
     frame_ready = QtCore.Signal(object)
     status_ready = QtCore.Signal(object)
@@ -69,7 +103,7 @@ class MainWindow(QtWidgets.QWidget):
         super().__init__()
         self.cfg = cfg
         self.setWindowTitle("Game Screen Translator")
-        self.resize(420, 280)
+        self.resize(760, 520)
 
         self._pipeline: Pipeline | None = None
         self._output_window: QtWidgets.QWidget | None = None  # OverlayWindow | MirrorWindow | PanelWindow
@@ -111,48 +145,195 @@ class MainWindow(QtWidgets.QWidget):
     # ------------------------------------------------------------------ UI
 
     def _build_ui(self) -> None:
-        layout = QtWidgets.QVBoxLayout(self)
+        self.setStyleSheet(_STYLE)
+        root = QtWidgets.QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        layout.addWidget(QtWidgets.QLabel("จอที่จะแปล (จับภาพ):"))
+        # --- top bar: title on the left, settings gear in the corner
+        bar = QtWidgets.QFrame()
+        bar.setObjectName("topbar")
+        bar_l = QtWidgets.QHBoxLayout(bar)
+        bar_l.setContentsMargins(16, 8, 8, 8)
+        self.title_label = QtWidgets.QLabel("Game Screen Translator")
+        self.title_label.setObjectName("title")
+        bar_l.addWidget(self.title_label)
+        bar_l.addStretch(1)
+        self.settings_button = QtWidgets.QToolButton()
+        self.settings_button.setObjectName("gear")
+        self.settings_button.setText("⚙")
+        self.settings_button.setToolTip("ตั้งค่า")
+        self.settings_button.setCursor(QtCore.Qt.PointingHandCursor)
+        self.settings_button.clicked.connect(self._toggle_settings)
+        bar_l.addWidget(self.settings_button)
+        root.addWidget(bar)
+
+        self.pages = QtWidgets.QStackedWidget()
+        root.addWidget(self.pages, 1)
+        self.pages.addWidget(self._build_home_page())
+        self.pages.addWidget(self._build_settings_page())
+
+    def _build_home_page(self) -> QtWidgets.QWidget:
+        page = QtWidgets.QWidget()
+        v = QtWidgets.QVBoxLayout(page)
+        v.setContentsMargins(16, 12, 16, 12)
+
+        self.feed = QtWidgets.QListWidget()
+        self.feed.setObjectName("feed")
+        self.feed.setWordWrap(True)
+        self.feed.setVerticalScrollMode(QtWidgets.QAbstractItemView.ScrollPerPixel)
+        self.feed.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        self.feed.setFocusPolicy(QtCore.Qt.NoFocus)
+        self._feed_items: dict[str, QtWidgets.QListWidgetItem] = {}
+        v.addWidget(self.feed, 1)
+
+        self.feed_hint = QtWidgets.QLabel("คำแปลล่าสุดจะแสดงที่นี่")
+        self.feed_hint.setObjectName("hint")
+        self.feed_hint.setAlignment(QtCore.Qt.AlignCenter)
+        v.addWidget(self.feed_hint)
+
+        self.start_button = QtWidgets.QPushButton("▶ เริ่มแปล")
+        self.start_button.setObjectName("primary")
+        self.start_button.setMinimumHeight(48)
+        self.start_button.setCursor(QtCore.Qt.PointingHandCursor)
+        self.start_button.clicked.connect(self._on_start_stop_clicked)
+        v.addWidget(self.start_button)
+
+        self.status_label = QtWidgets.QLabel("ยังไม่เริ่มทำงาน")
+        self.status_label.setObjectName("status")
+        self.status_label.setAlignment(QtCore.Qt.AlignCenter)
+        v.addWidget(self.status_label)
+
+        self.offline_label = QtWidgets.QLabel("ทำงานออฟไลน์ ไม่ส่งข้อมูลออกนอกเครื่อง")
+        self.offline_label.setObjectName("hint")
+        self.offline_label.setAlignment(QtCore.Qt.AlignCenter)
+        v.addWidget(self.offline_label)
+        return page
+
+    def _build_settings_page(self) -> QtWidgets.QWidget:
+        page = QtWidgets.QWidget()
+        h = QtWidgets.QHBoxLayout(page)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)
+
+        side = QtWidgets.QFrame()
+        side.setObjectName("sidebar")
+        side_l = QtWidgets.QVBoxLayout(side)
+        side_l.setContentsMargins(8, 12, 8, 12)
+        self.settings_nav = QtWidgets.QListWidget()
+        self.settings_nav.setObjectName("nav")
+        self.settings_nav.setFocusPolicy(QtCore.Qt.NoFocus)
+        for name in ("จอและโหมด", "คำแปล", "เครื่องมือ"):
+            self.settings_nav.addItem(name)
+        side_l.addWidget(self.settings_nav, 1)
+        back = QtWidgets.QPushButton("✕ กลับ")
+        back.setCursor(QtCore.Qt.PointingHandCursor)
+        back.clicked.connect(self._toggle_settings)
+        side_l.addWidget(back)
+        side.setFixedWidth(170)
+        h.addWidget(side)
+
+        self.settings_stack = QtWidgets.QStackedWidget()
+        h.addWidget(self.settings_stack, 1)
+
+        # -- general: monitors + mode
+        general = QtWidgets.QWidget()
+        g = QtWidgets.QVBoxLayout(general)
+        g.setContentsMargins(24, 20, 24, 20)
+        g.addWidget(self._section("จอที่จะแปล (จับภาพ)"))
         self.monitor_combo = QtWidgets.QComboBox()
         for m in self._monitors:
             self.monitor_combo.addItem(self._monitor_label(m))
-        layout.addWidget(self.monitor_combo)
-
-        layout.addWidget(QtWidgets.QLabel("โหมดแสดงผล:"))
+        g.addWidget(self.monitor_combo)
+        g.addWidget(self._section("โหมดแสดงผล"))
         self.mode_combo = QtWidgets.QComboBox()
         for key in ("A", "B", "C"):
             self.mode_combo.addItem(_MODE_LABELS[key], userData=key)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        layout.addWidget(self.mode_combo)
-
+        g.addWidget(self.mode_combo)
+        self.output_section = self._section("จอที่แสดงผลคำแปล")
+        g.addWidget(self.output_section)
         self.output_monitor_combo = QtWidgets.QComboBox()
         for m in self._monitors:
             self.output_monitor_combo.addItem(self._monitor_label(m))
-        layout.addWidget(self.output_monitor_combo)
+        g.addWidget(self.output_monitor_combo)
+        note = QtWidgets.QLabel("การเปลี่ยนค่าจะมีผลตอนกดเริ่มแปลครั้งถัดไป")
+        note.setObjectName("hint")
+        g.addWidget(note)
+        g.addStretch(1)
+        self.settings_stack.addWidget(general)
 
-        self.start_button = QtWidgets.QPushButton("▶ เริ่มแปล")
-        self.start_button.setMinimumHeight(52)
-        self.start_button.clicked.connect(self._on_start_stop_clicked)
-        layout.addWidget(self.start_button)
+        # -- translations manager (embedded, filled in by _ensure_manager)
+        self._manager_holder = QtWidgets.QWidget()
+        self._manager_layout = QtWidgets.QVBoxLayout(self._manager_holder)
+        self._manager_layout.setContentsMargins(16, 16, 16, 16)
+        self.settings_stack.addWidget(self._manager_holder)
 
-        self.status_label = QtWidgets.QLabel("ยังไม่เริ่มทำงาน")
-        layout.addWidget(self.status_label)
-
-        self.offline_label = QtWidgets.QLabel("ทำงานออฟไลน์ ไม่ส่งข้อมูลออกนอกเครื่อง")
-        layout.addWidget(self.offline_label)
-
-        self.manage_button = QtWidgets.QPushButton("จัดการคำแปล")
-        self.manage_button.clicked.connect(self._open_manager)
-        layout.addWidget(self.manage_button)
-
+        # -- tools
+        tools = QtWidgets.QWidget()
+        t = QtWidgets.QVBoxLayout(tools)
+        t.setContentsMargins(24, 20, 24, 20)
         self.region_editor_button = QtWidgets.QPushButton("แก้ไข region")
         self.region_editor_button.clicked.connect(self._open_region_editor)
-        layout.addWidget(self.region_editor_button)
-
+        t.addWidget(self.region_editor_button)
         self.wizard_button = QtWidgets.QPushButton("สร้างโปรไฟล์จากเกมนี้")
         self.wizard_button.clicked.connect(self._open_wizard)
-        layout.addWidget(self.wizard_button)
+        t.addWidget(self.wizard_button)
+        t.addStretch(1)
+        self.settings_stack.addWidget(tools)
+
+        self.settings_nav.currentRowChanged.connect(self._on_settings_nav)
+        self.settings_nav.setCurrentRow(0)
+        return page
+
+    def _section(self, text: str) -> QtWidgets.QLabel:
+        label = QtWidgets.QLabel(text)
+        label.setObjectName("section")
+        return label
+
+    def _toggle_settings(self) -> None:
+        in_settings = self.pages.currentIndex() == 1
+        self.pages.setCurrentIndex(0 if in_settings else 1)
+        self.settings_button.setText("⚙" if in_settings else "✕")
+
+    def _show_settings_page(self, row: int) -> None:
+        self.pages.setCurrentIndex(1)
+        self.settings_button.setText("✕")
+        self.settings_nav.setCurrentRow(row)
+
+    def _on_settings_nav(self, row: int) -> None:
+        if row < 0:
+            return
+        if row == 1:
+            self._ensure_manager()
+        self.settings_stack.setCurrentIndex(row)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if event.key() == QtCore.Qt.Key_Escape and self.pages.currentIndex() == 1:
+            self._toggle_settings()
+            return
+        super().keyPressEvent(event)
+
+    def _add_feed(self, frame: FrameResult) -> None:
+        for tb in frame.blocks:
+            src, thai = tb.block.text, tb.thai
+            if not src or not thai:
+                continue
+            item = self._feed_items.get(src)
+            is_new = item is None
+            if is_new:
+                item = QtWidgets.QListWidgetItem()
+                self.feed.addItem(item)
+                self._feed_items[src] = item
+                while self.feed.count() > 100:
+                    old = self.feed.takeItem(0)
+                    for k, v in list(self._feed_items.items()):
+                        if v is old:
+                            del self._feed_items[k]
+                self.feed_hint.hide()
+            item.setText(thai + "\n" + src)
+            if is_new:
+                self.feed.scrollToBottom()
 
     def _monitor_label(self, m) -> str:
         label = f"จอ {m.index} — {m.width}x{m.height} @{int(m.dpi_scale*100)}%"
@@ -173,7 +354,9 @@ class MainWindow(QtWidgets.QWidget):
 
     def _on_mode_changed(self) -> None:
         mode = self.mode_combo.currentData()
-        self.output_monitor_combo.setVisible(mode in ("B", "C"))
+        visible = mode in ("B", "C")
+        self.output_monitor_combo.setVisible(visible)
+        self.output_section.setVisible(visible)
 
     def showEvent(self, event) -> None:  # noqa: N802 - Qt override
         super().showEvent(event)
@@ -315,7 +498,7 @@ class MainWindow(QtWidgets.QWidget):
                 self.status_label.setText(f"รีสตาร์ทอัตโนมัติ ({name} ค้าง)")
                 return
 
-    def _open_manager(self) -> None:
+    def _ensure_manager(self) -> None:
         from gametrans.ui_manager import ManagerDialog
 
         if self._pipeline is None:
@@ -329,10 +512,16 @@ class MainWindow(QtWidgets.QWidget):
             store = self._pipeline.store
 
         if self._manager_dialog is None:
-            self._manager_dialog = ManagerDialog(store, parent=self)
+            self._manager_dialog = ManagerDialog(store)
+            self._manager_layout.addWidget(self._manager_dialog)
+        self._manager_dialog.store = store
         self._manager_dialog.refresh()
-        self._manager_dialog.show()
-        self._manager_dialog.raise_()
+
+    def _open_manager(self) -> None:
+        self._ensure_manager()
+        self._show_settings_page(1)
+        self.show()
+        self.raise_()
 
     def _open_region_editor(self) -> None:
         from gametrans.ui_region_editor import RegionEditorWindow
@@ -375,6 +564,7 @@ class MainWindow(QtWidgets.QWidget):
     # ------------------------------------------------------ signal slots
 
     def _on_frame_main_thread(self, frame: FrameResult) -> None:
+        self._add_feed(frame)
         if isinstance(self._output_window, (OverlayWindow, PanelWindow)):
             handler = getattr(self._output_window, "update_frame", None) or getattr(self._output_window, "on_frame", None)
             if handler is not None:
